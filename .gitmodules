@@ -1,0 +1,3 @@
+[submodule "MATLAB_PV_LIB"]
+	path = PVLIB
+	url = git@github.com:martinherrerias/MATLAB_PV_LIB.git
