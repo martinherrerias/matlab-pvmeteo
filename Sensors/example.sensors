@@ -1,0 +1,84 @@
+# Example list of sensors, see MeteoSensor.readsensorspecs
+
+ignore:
+# Anchors (&X) can be used for sensors with common propperties, 
+# (put them inside an ignore block to avoid warnings)
+# merge them later into any sensor using << : *X
+
+    - &roof { location: [0,0,6] }
+    - &customsensor { model: R, calibration: 5.0, zero_offset: 5.0 }
+
+location:
+# This block is optional, but recommended.
+# The same information can be provided in the header of meteo files.
+
+    name: HLRS
+    latitude: 48.7397
+    longitude: 9.0971
+    altitude: 458
+    timezone: Europe/Berlin
+    interval: e
+
+sensors:
+# This is the actual list of sensors
+
+    # A basic sensor must contain a unique id, and a non-empty type.
+    # type and model are used to set default values for some sensor 
+    # types (see: sensor_defaults.xlsx)
+    -
+        id: ghi_1   # this should match the data column header!
+        type: GHI
+        model: A
+
+    - # Unknown sensor types will create warnings, but should work
+        id: obscure_sensor
+        type: nachtigalloskop
+        calibration: 2.0
+        zero_offset: 1.0
+        
+    - # a more detailed sensor definition ...
+        id: gti_30S
+        info: tilted reference cell, 30° south
+        type: GTI
+        model: PSP
+        << : *roof
+        << : *customsensor
+        tilt: 30.0
+        azimuth: 0
+        
+    # sensor groups can be defined using the 'members' property.
+    # Groups need not be valid sensors (i.e. they don't need an ID),
+    # but valid sensors can also have members. Any properties from
+    # from the parent group/sensor are inherited (unless overwritten)
+    # by the members.
+    -
+        group: RSI
+        model: RSI
+        info: rotating shadowband irradiometer
+        members:
+        -
+            id: RSI_DHI_channel
+            type: DHI
+        -
+            id: RSI_GHI_channel
+            type: GHI
+       
+    # NOTE: this hierarchical structure is meant for readability
+    # and convenience. It is destroyed during reading, however, 
+    # leaving group tags as the only evidence that two or more
+    # sensors are somehow related. The above is equivalent to the
+    # definition:
+    -
+        group: RSI2
+        model: RSI
+        id: RSI2_DHI_channel
+        type: DHI
+    -
+        group: RSI2
+        model: RSI
+        id: RSI2_GHI_channel
+        type: GHI
+
+
+
+
