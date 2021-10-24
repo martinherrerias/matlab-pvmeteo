@@ -1,0 +1,25 @@
+% 1. Save this file as "useraccounts.m" somewhere outside the Git repository
+% 2. Modify to add your own credentials
+% 3. Add to path
+
+function varargout = useraccounts(service)
+    
+    switch lower(service)
+    case 'geonames'
+    % See GEONAMES, free account at: https://www.geonames.org
+        varargout = {'user.name'};
+
+    case 'mcclear'
+    % See WPS_CAMS_MCCLEAR, free account for limited requests: www.soda-pro.com
+        varargout = {'user@example.com'};
+
+    case 'merra2'
+    % See WPS_MERRA2, paid account: www.soda-pro.com
+    % Alternatively download files manually and place in path (see GETREMOTE)
+
+        varargout = {'user','passwd'};
+        
+    otherwise
+        error('Unknown service')
+    end
+end
