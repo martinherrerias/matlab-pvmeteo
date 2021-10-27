@@ -20,16 +20,18 @@ function MD = completemeteodata(MD)
 %       are used as defaults (if the given variable is missing) or to fill gaps in locally measured
 %       variables.
 %
-%   MD.options.fitclearsky 
-%   MD.options.fitclearsky
-%     'clearskycheck' - Use clear-sky models & detection to flag/remove points
+%   MD.options.fitclearsky - if true (EXPERIMENTAL) try to fit a smooth series of Linke-Turbidty 
+%       values to the data, to correct bias in clear-sky model. See FITCLEARSKY.
+%   MD.options.clearskycheck - if true (EXPERIMENTAL) flag points with BNI > CSBNI·k1, and with
+%       DHI < k2·CSDHI where factors k1, k2 are estimated from a inter-quartile-range of binned 
+%       auto-detected clear-sky samples. (See METEOQC.CLEARSKY_TESTS).
 %
 % FUTURE:   Seasonal UTC-offset detection and correction
 %           Shaded-sensor detection and correction
 %           Integration of RBE / bestimate
 %           Intra-hour resampling, for analysis of high-freq. modeling uncertainty 
 %               (MPPT, transient temperature model, ramps, etc.)
-%           User-Interactive inspection, filtering, and correction
+%           User-Interactive tool for inspection, filtering, and correction
 %
 % See also: GUIMETEO, GETMETEODATA, PVLMOD_SPA, GTI2COMPONENTS, SENSORUNCERTAINTY
 %   CHECKUTCOFFSET, METEOQC.TEST, METEODATA.LOADOBJ, METEODATA.REFRESH, GETSUNPOS
@@ -136,8 +138,12 @@ function MD = completemeteodata(MD)
     if opt.fitclearsky
         MD = fitclearsky(MD,'verbose',opt.verbose,'minCSfraction',opt.minCSfraction);
     end
-    if isfield(MD,'clearsky'), MD.data.clearsky = MD.data.clearsky > 0; end
-    MD = meteoQC.clearsky_tests(MD);
+    if isfield(MD,'clearsky')
+        MD.data.clearsky = MD.data.clearsky > 0;
+        if opt.clearskycheck && nnz(MD.data.clearsky)/nnz(~MD.dark) > opt.minCSfraction
+            MD = meteoQC.clearsky_tests(MD);
+        end
+    end
 
     % Plotting
     % if opt.verbose

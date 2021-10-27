@@ -24,7 +24,6 @@ function RES = RBE(MD,TPM,usedvar,varargin)
 %     RES.map - Maximum a Posteriori
 %     RES.PIT - Ntx2 Probability Integral Transform (marginal kn, and kd | kn)
 
-
     opt.ndays = Inf;
     opt.mainmdl = 1;
     opt.minP = 1e-12;
@@ -167,7 +166,7 @@ function RES = RBE(MD,TPM,usedvar,varargin)
             if opt.benchmark && (opt.plot || ny == 1)
             % Benchmark for a single sensor: intersection of reverse-Perez and separation model
             
-                [kd0,kn0,KD,KN] = reverse_perez(surftilt,surfaz,Y(t,typ.GTI),MD.ENI(t),...
+                [KD,KN,kd0,kn0] = reverse_perez(surftilt,surfaz,Y(t,typ.GTI),MD.ENI(t),...
                                   MD.sunel(t),MD.sunaz(t),MD.albedo(t),{S(typ.GTI).fIAM},[],'bin');
                 
                 if ny == 1 && ~isempty(kd0)

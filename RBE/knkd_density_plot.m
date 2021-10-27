@@ -1,4 +1,19 @@
 function [h,cb,c] = knkd_density_plot(g,P,varargin)
+% KNKD_DENSITY_PLOT(G,P,[SCALE,LBL,AX],...) - plot either 2D contours or 3D iso-surfaces for a 
+%   kernel density estimate on kn, kd, [z,..] represented by cell array of grid vectors G and ND 
+%   array of PDF values P.
+%
+%   For 4D+ dimensional estimates, a 3D 'slice' P(:,:,:,j,k,..) with indices j,k,.. near the 
+%   median of grids g{4},g{5},..
+%
+% KNKD_DENSITY_PLOT(G,P,'pdf',..,'levels',l) adds contours/surfaces at densities 10.^(l), with
+%   default l = -2:2.
+%
+% KNKD_DENSITY_PLOT(G,P,'cdf',..,'quantiles',q) adds contours/surfaces at densities y that match
+%   quantiles q, i.e. CDF(x < y) = q(j) for each q. Defaults are [0.5 0.75 0.9 0.95 0.99 0.999].
+%
+% KNKD_DENSITY_PLOT(..,'sepmdl'{ARGS}) - pass additional arguments to DIFFUSE_FRACTION, to plot
+%   a separation model as a reference line.
 
     opt.scale = 'pdf';
     opt.dimlabels = {'k_n','k_d'};
@@ -92,28 +107,6 @@ function [h,cb,c] = knkd_density_plot(g,P,varargin)
                 isosurface(g{:},-log10(P),iso); alpha 0.3;
             end
         end
-
-%         Z0 = 0.7;
-%         g = G.GridVectors(1:2);
-%         [g{:}] = ndgrid(g{:});
-%         slice = G(g{:},ones(size(g{1}),'single')*Z0);
-        
-%         GUIfigure('foo');
-%         prettyaxes(gca,'$pdf(x)$')
-%         [c,h] = contour(g{:},-log10(slice),-2:2);
-%         
-%         GUIfigure('knkd_density');
-%         
-%         c(3,:) = Z0;
-%         patch([0,1,1,0]',[0,0,1,1]',ones(4,1)*Z0,1,'facecolor','w','facealpha',Z0)
-%         j = 1; k = 1;
-%         while(j) < size(c,2)
-%             C{k} = c(:,(j+1):(j+c(2,j)));
-%             k = k+1;
-%             j = j+c(2,j)+1;
-%         end
-%         set(gca,'colororder',parula(2*numel(LVL)-1));
-%         h = cellfun(@(x) plot3(x(1,:),x(2,:),x(3,:)),C);
         
         % caxis([LVL(1)-0.5,LVL(end)+0.5])
         set(gca,'OuterPosition',[0.02 0 0.8 1.0]);

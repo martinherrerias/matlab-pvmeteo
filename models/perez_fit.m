@@ -1,7 +1,10 @@
 function [B,se,VB,ec] = perez_fit(GTI,surftilt,surfaz,DHI,BNI,ENI,sunel,sunaz,albedo,varargin)
 % [B,se,VB] = PEREZ_FIT(GTI,surftilt,surfaz,DHI,BNI,ENI,sunel,sunaz,albedo,[IAM,method])
+%
+% Calculate coefficients B for the Perez. et al. 1990 model based on a set of tilted sensor
+% measurements GTI.
 
-% TODO: adjust diffuse components & horizontal measurements for IAM
+% TODO: adjust diffuse & horizontal measurements for IAM
 % TODO: weight observations based on (correlated?!) sensor uncertainty        
 
     opt = getpairedoptions(varargin,{'fIAM','method'},{@(x) x < 90,'bin'},'dealrest');
