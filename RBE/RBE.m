@@ -66,6 +66,11 @@ function RES = RBE(MD,TPM,usedvar,varargin)
     [~,idx] = parselist(usedvar,{MD.sensors.ID});
     S = MD.sensors(idx);
     
+    if opt.benchmark
+    % TODO!- define benchmark for other sensor types
+        assert(all(typ.GTI),'Benchmark is still not defined for non-GTI sensors');
+    end
+    
     % [surftilt,surfaz,IAM,sensor_list,sensor_labels] = getsensorinfo(MD.sensors,usedvar,typ);
     
     if any(typ.GTI)
@@ -161,13 +166,14 @@ function RES = RBE(MD,TPM,usedvar,varargin)
             R = P.*Q;
             R = R./sum(R.*w,1:2);
             
-            ny = nnz(isfinite(Y(t,:)));
+            valid = isfinite(Y(t,:));
+            ny = nnz(valid);
             
             if opt.benchmark && (opt.plot || ny == 1)
             % Benchmark for a single sensor: intersection of reverse-Perez and separation model
             
-                [KD,KN,kd0,kn0] = reverse_perez(surftilt,surfaz,Y(t,typ.GTI),MD.ENI(t),...
-                                  MD.sunel(t),MD.sunaz(t),MD.albedo(t),{S(typ.GTI).fIAM},[],'bin');
+                [KD,KN,kd0,kn0] = reverse_perez(surftilt(valid),surfaz(valid),Y(t,valid),MD.ENI(t),...
+                                  MD.sunel(t),MD.sunaz(t),MD.albedo(t),{S(valid).fIAM},[],'bin');
                 
                 if ny == 1 && ~isempty(kd0)
                 % NOTE: take the mean if there's multiple intersections
