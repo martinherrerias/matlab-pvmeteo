@@ -169,7 +169,7 @@ function RES = RBE(MD,TPM,usedvar,varargin)
             valid = isfinite(Y(t,:));
             ny = nnz(valid);
             
-            if opt.benchmark && (opt.plot || ny == 1)
+            if opt.benchmark && ((opt.plot && ny > 0) || (ny == 1))
             % Benchmark for a single sensor: intersection of reverse-Perez and separation model
             
                 [KD,KN,kd0,kn0] = reverse_perez(surftilt(valid),surfaz(valid),Y(t,valid),MD.ENI(t),...

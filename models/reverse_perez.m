@@ -162,9 +162,11 @@ function [KD,KN,xkd,xkn] = reverse_perez(surftilt,surfaz,GTI,ENI,sunel,sunaz,var
         xkd = cell(1,2);
         xkn = cell(1,2);
     
-        Kt = KD{j}+KN{j};
-        [rd,Kn] = diffuse_fraction(Kt,90-sunel,'sot2');
-        [xkd{j},xkn{j}] = segmentxing(KD{j},KN{j},rd.*Kt,Kn);
+        for j = 1:2
+            Kt = KD{j}+KN{j};
+            [rd,Kn] = diffuse_fraction(Kt,90-sunel,'sot2');
+            [xkd{j},xkn{j}] = segmentxing(KD{j},KN{j},rd.*Kt,Kn);
+        end
         
         xkd = cat(3,xkd{:});
         xkn = cat(3,xkn{:});
