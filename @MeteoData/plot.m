@@ -2,7 +2,7 @@ function varargout = plot(MD,type,varargin)
 % Diagnostic plots for MeteoData objects
 %
 %   PLOT(MD,'ktrd',...) - kt vs rd scatter plot (colored by density)
-%   PLOT(MD,'knkd',...) - kn vs kd scatter plot (colored by density)
+%   PLOT(MD,'knkd'/'ktrd',...) - kn vs kd (bzw. kt vs rd) scatter plot (colored by density)
 %   PLOT(MD,'shade',...) - sunel vs sunaz plot (colored by max(kn).
 %   PLOT(MD,'heatmap',...) - Heat-maps for kn,kd,Ta (optionally other variables).
 %
@@ -220,6 +220,7 @@ function heatmaps(h,MD,vars,lbl)
     
     MD = meteoQC.flagged2nan(MD,'all');
     X = zeros(MD.Nt,n);
+    MD.t.TimeZone = MD.location.TimeZone;
 
     idx = cellfun(@(x) ismember(vars(:),x)',MD.source,'unif',0);
     bysource = any(cat(1,idx{:}),1);

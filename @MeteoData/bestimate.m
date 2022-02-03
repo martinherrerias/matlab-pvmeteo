@@ -223,7 +223,7 @@ function [S,U] = BNIfromRest(S,U,cosZ,CSBNI)
     % U.GHI(ovcast) = u0;
     % U.DHI(ovcast) = u0;
 
-    if ~isfield(S,'BNI'), missing = true(size(S.GHI)); S.BNI = zeros(0,1);
+    if ~isfield(S,'BNI'), missing = true(size(S.GHI)); S.BNI = zeros(numel(cosZ),1);
     else, missing = ~isfinite(S.BNI);
     end
     if ~any(missing), return; end

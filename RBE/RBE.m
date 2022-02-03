@@ -187,7 +187,7 @@ function RES = RBE(MD,TPM,usedvar,varargin)
                 
             if isfinite(MD.kn(t)) && isfinite(MD.kd(t)) && any(isfinite(E),'all')
                 if ny > 1 && opt.benchmark
-                % Benchmark for a multiple sensors: least RMSE from reverse-Perez
+                % Benchmark for multiple sensors: least RMSE from reverse-Perez
                 
                     BIG = 1e4;
                     E(~isfinite(E)) = BIG;

@@ -392,8 +392,13 @@ function [MD, t, Location] = ReadSolarGIS(data)
     missing = setdiff(REQVARS,data.headers);
     assert(isempty(missing),'Missing %s',shortliststr(missing,'column','colon',':'));
 
-    [MD.interval,offset] = checksummarization(data.params.interval);
-    if MD.interval == 'i', offset = 0; else, offset = offset - 0.5; end
+    if isfield(data.params,'interval')
+        data.params.interval = checksummarization(data.params.interval);
+    else
+        warning('Unknown interval summarization, assuming center-of-interval');
+        data.params.interval = 'c';
+    end
+    if data.params.interval == 'i', MD.interval = 'i'; else, MD.interval = 'c'; end
 
     % Find the number of the header line
     MD.info = data.comments;
@@ -401,10 +406,8 @@ function [MD, t, Location] = ReadSolarGIS(data)
     % convert date strings to numbers (Day count)
     Nt = size(data.data{1},1);
     [t,dt] = parsetime([cat(1,data.data{1}{:}),repmat(' ',Nt,1),cat(1,data.data{2}{:})],...
-        'InputFormat','dd.mm.yyyy HH:MM','TimeZone',UTCoffset);
-    if offset~=0
-        t = t - offset.*dt; % set interval summarization to center
-    end
+        'InputFormat','dd.mm.yyyy HH:MM','TimeZone',UTCoffset,...
+        'interval',{data.params.interval,MD.interval});
     MD.timestep = dt;
 
     % ... and just dump the rest under a field named as each header
@@ -484,17 +487,18 @@ function [MD, t, Location] = ReadMeteoNormSolar(alldata)
 % Read Location from header lines
     Location.name = txt{1}(2:end-1);
 
-    LocationData = sscanf(txt{2},'%f,%f,%f,%d');
+    LocationData = sscanf(txt{2},'%f,%f,%f,%d,%d');
         Location.latitude = LocationData(1);
-        Location.longitude = LocationData(2);
+        Location.longitude = -LocationData(2);
         Location.altitude = LocationData(3);
-        UTCoffset = LocationData(4); % UTC offset sign seems reversed
+        UTCoffset = -LocationData(4); % UTC offset sign seems reversed
+        % ADDOFFSET = LocationData(5)/60;
     clear LocationData
     
     n = size(data,1);
     assert(mod(n,365) == 0,'Expecting time-steps to be integer multiple of 365');
     t = doy2time(1+365*(0:n-1)/n,UTCoffset)';
-%     t = doy2time(1+365*(0.5:n)/n,UTCoffset)';
+    % t = doy2time(1+365*(0:n-1)/n - ADDOFFSET/24,UTCoffset)';
     
     % NOTE: it's not clear what the summarization convention inside PVsyst is. Using centered
     %   intervals causes UTC errors of {0,1,-1} hour + 30 min in most cases. Start of interval
@@ -512,13 +516,16 @@ function t = doy2time(DoY,UTCoffset)
 % Convert fractional Day-of-Year values (1.0 = Jan 1. 00:00, 366.0 = Dec 31. 24:00) into
 % a DATETIME vector, using the current year (or last, avoiding leap-years).
 
+
     UTCoffset = checktimezone(UTCoffset,'UTC'); 
 
     % Use this year or last (non-leap year)
     y = year(now()-60); % -2 months ensures MERRA2 data is available
     y = y - (rem(y,4) == 0 && (rem(y,100) ~= 0 || rem(y,400) == 0));
+    % y = 2011;
     
-    t = datetime(datenum(y,1,1) + DoY - 1,'convertfrom','datenum','TimeZone',UTCoffset);
+    t = parsetime(datenum(y,1,1) + DoY - 1,'convertfrom','datenum','interval',{'b','c'},...
+        'TimeZone',UTCoffset);
 end
 
 function output = standardnames(input)

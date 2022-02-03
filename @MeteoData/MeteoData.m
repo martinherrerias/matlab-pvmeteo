@@ -6,7 +6,7 @@ classdef MeteoData < table_ish
 % Since the Tabular class is sealed (thank you, MathWorks), the class inherits from the TABLE_ISH
 % wrapper. Data is stored in timetable obj.data. Variables can be accessed as MD.data.VAR, and
 % outside class methods also directly as MD.VAR. Upon object contruction names are parsed to the
-% internal variable naming convention (see METEODATA.METEODATA, FINDFIELDS, and WHATIS)
+% internal variable naming convention (see METEODATA.WHATIS, VARNAMES, and FINDFIELDS)
 %
 %   TODO: switch to standard naming convention https://duramat.github.io/pv-terms/
 %
@@ -19,6 +19,10 @@ classdef MeteoData < table_ish
 % automatically upon construction.
 %
 % Meta-data is included in class properties:
+%
+%     obj.t (obj.data.Properties.RowTimes) [datetime] interval/sample timestamps (see obj.interval)
+%     obj.timestep (obj.data.Properties.TimeStep) scalar DURATION
+%     obj.source unique column char IDs, pointing to sensor or model IDs for each variable
 %
 %     obj.location - structure, with fields latitude, longitude, altitude,... see PARSELOCATION
 %     obj.interval - {'i','c','b','e'} interval summarization (instant / center / beginning / end)
@@ -44,6 +48,7 @@ properties (GetAccess = public, SetAccess = public)
     
     location = struct.empty;  % structure, see PARSELOCATION
     interval = '';            % {'i','c','b','e'} interval summarization (instant / center / beginning / end)
+    timestep     % DURATION scalar (MD.data.Properties.TimeStep, if regular)
     info ={''}                % free cellstring
     
     options = struct.empty    % SimOptions.meteo and others
@@ -54,11 +59,10 @@ properties (GetAccess = public, SetAccess = public)
     models = {}                   % function-handles? structure?
 end
 properties (GetAccess = public, SetAccess = private)
-   status   % structure of flags {regular,tested,complete} 
+    status       % structure of flags {regular,tested,complete}
 end
 properties (Dependent = true) % encoded in TimeTable object
     t           % MD.data.Properties.RowTimes: [datetime] interval/sample timestamps
-    timestep    % MD.data.Properties.TimeStep: time step (for regular time series)
     source      % MD.Properties.CustomProperties.source - unique column char IDs, pointing to
                 % sensor or model IDs
 end
@@ -84,11 +88,17 @@ methods
         end
     end
     
-    function dt = get.timestep(MD), dt = MD.data.Properties.TimeStep; end
+    % function dt = get.timestep(MD), dt = MD.data.Properties.TimeStep; end
     function MD = set.timestep(MD,dt)
-        dt0 = MD.data.Properties.TimeStep;
-        if isempty(dt0) || isnan(dt0)
-           MD.data.Properties.TimeStep = dt; 
+        if isempty(dt), dt = minutes(NaN); end
+        validateattributes(dt,'duration',{'scalar'});
+        MD.timestep = dt;
+        if isregular(MD.data)
+            dt0 = MD.data.Properties.TimeStep;
+            if dt ~= dt0
+                warning('Inconsistent timestep: %s (property) vs %s (table)',...
+                    isoduration(dt),isoduration(dt0));
+            end
         end
     end
     
@@ -175,7 +185,7 @@ methods
         [X,F,ib,ic] = getbysource(MD,src);
         for j = unique(ib)
             inj = (ib == j);
-            fld = MD.data.Properties.VariableNames{ib(j)};
+            fld = MD.data.Properties.VariableNames{j};
             if isempty(setdiff(1:size(MD.data.(fld),2),ic(inj)))
                 MD.data.(fld) = [];
                 MD.flags.data.(fld) = [];
@@ -421,7 +431,7 @@ methods
     MD = checksensors(MD,sensors,assumedefaults)
 
     function MD = checktimestamps(MD)
-    % Timestep parsing & regularization (assume UTC, if missing)
+    % obj.checktimestamps() - Timestep parsing & regularization (assume UTC, if missing)
 
         dt = MD.timestep;
 
@@ -455,32 +465,32 @@ methods
         MD.missing = true(numel(u),1);
         MD.missing(idx) = false;
 
-        repeated = [];
-        if numel(ia) > numel(idx) || ~isequal(ia,(1:numel(idx))')
+        n = accumarray(ia,1);
+        % repeated = idx(n > 1);
+            
+        if any(n > 1) || numel(u) > MD.Nt || ~issorted(idx(ia))
         % Average repeated time-steps, re-sort and regularize
 
-            n = accumarray(ia,1);
-            repeated = idx(n > 1);
             F = sparse(idx(ia),1:numel(ia),1./n(ia),numel(u),numel(ia));
-            F = F + sparse(find(MD.missing),1,NaN,numel(u),numel(ia));
-            MD = filterstructure(MD,F);
-
-        elseif numel(u) > numel(idx) || ~isequal(idx,(1:MD.Nt)')
-        % Re-sort / regularize time-steps
-            MD = mergestructures(MD,idx,max(idx),'-fillmissing');
-        end
-
-        if any(repeated)
-            bad = false(MD.Nt,1);
-            bad(repeated) = ~MD.dark(repeated);
-            if any(bad)
-                warning('%d repeated steps during daylight hours',nnz(bad))
+            % F = F + sparse(find(MD.missing),1,NaN,numel(u),numel(ia));
+            % MD = filterstructure(MD,F);
+            
+            MD.data = filterstructure(MD.data,F);
+            MD.flags = filterstructure(MD.flags,F);
+            if ~isempty(MD.uncertainty)
+                MD.uncertainty.data = filterstructure(MD.uncertainty.data,F);
             end
+            MD.t = parsetime(MD.t,'-gridded');
+        
+            MD.data{MD.missing,:} = deal(NaN);
+            MD.t = u;
+            MD = refresh(MD);
         end
     end
     
     function MD = checkUTCoffset(MD,varargin)
-    % UTC-offset check (and correction), wrapper for CHECKUTCOFFSET
+    % obj.checkUTCoffset(...) - UTC-offset check (and correction), wrapper for CHECKUTCOFFSET.
+    %   Any arguments are passed as flags / name-value pairs to CHECKUTCOFFSET.
     
         parselocation(MD.location);
         try
@@ -511,6 +521,8 @@ methods
     MD = filter(MD,varargin)
     
     function MD = filterstructure(MD,varargin)
+    % MD = FILTERSTRUCTURE(MD,...) - overloaded FILTERSTRUCTURE method for filtering, resampling,
+    %   or downsampling of METEODATA objects.
         
         original.interval = MD.interval;
         original.timestep = MD.timestep;
@@ -549,6 +561,8 @@ methods
     end
 
     function C = horzcat(A,B)
+    % C = HORZCAT(A,B), C = [A,B] - horizontal concatenation (add columns for METEODATA objects
+    %   with common timestamps and the same location.
         
         narginchk(2,2);
         C = A;
@@ -600,39 +614,86 @@ methods
     
     varargout = plot(MD,type,varargin)
     
+    function MD = cleanup(MD)
+    % MD = CLEANUP(MD) - ensure that ancilliary variables [ MD.varnames({'ambient','clearsky'}) ]
+    %   are vector fields. Remove columns copied from MERRA2 data (unless no other channel is
+    %   available) and pick a single clear-sky model(FITCLEARSKY > MCCLEAR > INEICHEN).
+        
+        MD = checksources(MD);
+        allfields = MD.data.Properties.VariableNames;
+        
+        % remove reduntant merra2 fields (already used for gap-filling)
+        fld = intersect(allfields,MeteoData.varnames('ambient'));
+        for k = 1:numel(fld)
+            j = fieldidx(MD,fld{k});
+            
+            if numel(MD.source{j}) <= 1, continue; end
+            
+            idx = contains(MD.source{j},'merra2');
+            if any(idx) && ~all(idx)
+                MD = rmsource(MD,MD.source{j}(idx));
+            end
+            
+            if numel(MD.source{j}) > 1
+                warning('cleanup:average','Using simple average of %s',shortliststr(MD.source{j}));
+                MD.data.(fld{k}) = mean(MD.data{:,j},2,'omitnan');
+            end
+        end
+        
+        PRIORITY = {'fitclearsky','mcclear','linketurbidity'};
+        
+        % remove reduntant clear-sky fields (already used for gap-filling)
+        fld = intersect(allfields,MeteoData.varnames('clearsky'));
+        for k = 1:numel(fld)
+            j = fieldidx(MD,fld{k});
+            
+            if numel(MD.source{j}) <= 1, continue; end
+
+            for s = 1:numel(PRIORITY)
+                idx = contains(MD.source{j},PRIORITY{s});
+                if any(idx) && ~all(idx)
+                    MD = rmsource(MD,MD.source{j}(~idx));
+                end
+                if numel(MD.source{j}) <= 1, break; end
+            end
+            
+            if numel(MD.source{j}) > 1
+                warning('cleanup:average','Using simple average of %s',shortliststr(MD.source{j}));
+                MD.data.(fld{k}) = mean(MD.data{:,j},2,'omitnan');
+            end
+        end
+    end
+    
+    function [B,P,U] = legacy(MD)
+    % [B,P,U] = LEGACY(MD) - generate simplified structures, compatible with older code versions:
+    %
+    %   B: structure with vector fields (single-channel) GHI, DHI, BNI, Ta, vw...
+    %   P: structure with vector fields (solar position variables)
+    %   U: irradiance uncertainty
+    
+        [MD,B,U] = bestimate(MD);
+        MD = cleanup(MD);
+
+        allfields = MD.data.Properties.VariableNames;
+        
+        f = intersect(allfields,MeteoData.varnames('sunpos'));
+        P = table2struct(MD.data(:,f),'toscalar',true);
+
+        f = MeteoData.varnames({'ambient','clearsky','indices'});
+        f = intersect(allfields,f);
+        B = completestruct(B,table2struct(MD.data(:,f),'toscalar',true));
+    
+    end
+    
 end
 methods (Static = true)
-    function [MD,idx] = loadobj(MD)
+    function MD = loadobj(MD)
     % OBJ = LOADOBJ(OBJ) - calculate and set all transient properties.
 
         opt = MD.options;
 
-        if ~isregular(MD.data)
-            [u,dt,idx] = parsetime(MD.t,'step',MD.timestep,'interval',MD.interval,'-regular');
-
-            missing = true(numel(u),1);
-            missing(idx) = false;
-            if isfinite(dt), MD.timestep = dt; end
-
-            if ~isequal(MD.t,u)
-                if ~isequal(idx,(1:MD.Nt)')
-                    MD.data(idx,:) = MD.data;
-                    MD.flags.data(idx,:) = MD.flags.data;
-                end
-                if any(missing)
-                    sz = size(MD.data{missing,:});
-                    MD.data{missing,:} = NaN(sz);
-                    [b,MD.flags] = MD.flags.flagbit('NA');
-                    MD.flags.data{missing,:} = repmat(bitset(0,b,meteoQC.TYPE),sz);
-                end
-                MD.t = u;
-            end
-            
-            missing(~missing) = ~any(isfinite(MD.data{~missing,:}),2);
-        else
-            missing = ~any(isfinite(MD.data{:,:}),2);
-            idx = (1:MD.Nt)';
-        end
+        if ~isregular(MD.data), MD = checktimestamps(MD); end          
+        missing = ~any(isfinite(MD.data{:,:}),2);
         
         if opt.fillgaps > 0
         % Don't flag small gaps as missing data
@@ -642,12 +703,15 @@ methods (Static = true)
         end
         MD.missing = missing;
                 
-        % MD = getsunpos(MD);
+        % MD = getsunpos(MD);git s
         MD = refresh(MD);
         % MD = getuncertainty(MD);        
     end
     
     function MD = import(filename,sensorsfile,filetype,varargin)
+    % MD = METEODATA.IMPORT(filename,sensorsfile,filetype,...) - wrapper for METEODATA.GETMETEODATA
+    %   to include a configuration (*.sensors) file. 
+    
         if nargin < 1 || isempty(filename), filename = pickfile({'*.meteo'}); end
         if nargin < 2 || (isempty(sensorsfile) && ~iscell(sensorsfile))
             sensorsfile = pickfile('*.sensors',Inf,'ui',1); 
@@ -657,9 +721,12 @@ methods (Static = true)
         sens = cellfun(@MeteoSensor.readsensorspecs,sensorsfile,'unif',0);
         sens = cat(1,sens{:});
         
-        [S, time, Loc] = getMeteoData(filename,filetype);
+        [S, time, Loc] = MeteoData.getMeteoData(filename,filetype);
         MD = MeteoData(S,'t',time,'location',Loc,'sensors',sens,varargin{:});
     end
+    
+    [S, time, Loc] = getMeteoData(filename,filetype);
+    
     function f = varnames(types)
     % C = METEODATA.VARNAMES(TYPES) - Return named subsets of known MeteoData properties, e.g.
     %

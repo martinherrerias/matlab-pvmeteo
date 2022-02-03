@@ -66,7 +66,7 @@ function Loc = parselocation(Loc,varargin)
                 Loc = completestruct(Loc,L);
                 warning('Using location %s from GEONAMES',shortliststr(missing))
             catch ERR2
-                warning(ERR2.identifier,'Failed to use GEONAMES: %s',ERR2.message);
+                warning('parselocation:geonames','Failed to use GEONAMES: %s',ERR2.message);
             end
         end
     end

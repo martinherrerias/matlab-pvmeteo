@@ -31,15 +31,15 @@ function D = getremote(type,Loc,interval,dt,varargin)
 %       'h' (hour), 'd' (day), and for MERRA2 data, 'm' (month)
 %
 % OUTPUT:
-%   MC : structure containing location, period, clear-sky-radiation (W/m²), etc.
-%        (see READ_CAMS for details).
-%
-% [D,M] = GETREMOTE(..) returns instead a timetable D, and a metadata structure M.
+%   MC : MeteoData object. Variable names are the same as in READ_CAMS / READ_MERRA2 and should
+%       match the conventions in METEODATA (see METEODATA.WHATIS). Variable sources, however, 
+%       are prefixed by 'mcclear.*' / 'merra2.*' so that the resulting object can be merged to
+%       other MeteoData objects without conflicts.
 %
 % Example: 15-min data for last month
 %   MC = WPS_CAMS_MCCLEAR([45.0 25.0],now-32,now-2,15)
 %
-% See also: READ_CAMS, WPS_MERRA2, COMPLETEMETEODATA
+% See also: READ_CAMS, READ_MERRA2, WPS_MERRA2, WPS_CAMS_MCCLEAR, COMPLETEMETEODATA
 
     narginchk(4,Inf);
     

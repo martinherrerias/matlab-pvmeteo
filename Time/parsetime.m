@@ -118,7 +118,7 @@ function [T,dt,idx,ia] = parsetime(X,varargin)
     end
     if isempty(OPT.latticeunit), OPT.latticeunit = seconds(1); end
     assert(isa(OPT.latticeunit,'duration'), 'Expecting DURATION latticeunit');
-    if isa(OPT.gridunits,'duration'), OPT.gridunits = minutes(OPT.gridunits); end
+    if ~isa(OPT.gridunits,'duration'), OPT.gridunits = minutes(OPT.gridunits); end
 
     if ~isempty(OPT.convertfrom), OPT.InputFormat = OPT.convertfrom; end
     if isempty(OPT.interval), OPT.interval = 'i'; end

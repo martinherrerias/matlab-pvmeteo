@@ -103,7 +103,8 @@ function MD = checksensors(MD,sensors,assumedefaults)
     % end
 
     if any(~assigned_sensors)
-        warning(shortliststr(sensIDs(~assigned_sensors),'Unassigned sensor'));
+        warning(shortliststr(sensIDs(~assigned_sensors),'Removing unassigned sensor'));
+        MD.sensors(~assigned_sensors) = [];
     end
     
     [areflags,parents] = findflagsensors(MD.sensors,source_list);

@@ -26,12 +26,12 @@ function MD = completemeteodata(MD)
 %       DHI < k2·CSDHI where factors k1, k2 are estimated from a inter-quartile-range of binned 
 %       auto-detected clear-sky samples. (See METEOQC.CLEARSKY_TESTS).
 %
-% FUTURE:   Seasonal UTC-offset detection and correction
-%           Shaded-sensor detection and correction
-%           Integration of RBE / bestimate
-%           Intra-hour resampling, for analysis of high-freq. modeling uncertainty 
+% TODO:   Seasonal UTC-offset detection and correction
+%         Shaded-sensor detection and correction
+%         Integration of RBE / bestimate
+%         Intra-hour resampling, for analysis of high-freq. modeling uncertainty 
 %               (MPPT, transient temperature model, ramps, etc.)
-%           User-Interactive tool for inspection, filtering, and correction
+%         User-Interactive tool for inspection, filtering, and correction
 %
 % See also: GUIMETEO, GETMETEODATA, PVLMOD_SPA, GTI2COMPONENTS, SENSORUNCERTAINTY
 %   CHECKUTCOFFSET, METEOQC.TEST, METEODATA.LOADOBJ, METEODATA.REFRESH, GETSUNPOS
@@ -83,7 +83,7 @@ function MD = completemeteodata(MD)
     % gap-filling of ancilliary variables
     [b,MD.flags] = flagbit(MD.flags,{'interp'});
 
-    fld = {'Patm','Ta','RH','vw','albedo','soiling'};
+    fld = {'Patm','Ta','RH','vw','albedo','soiling'}; % check MeteoData.varnames('ambient')
     res = [8,1,1,1,24*7,24*7];
 
     for j = 1:numel(fld)
@@ -105,8 +105,14 @@ function MD = completemeteodata(MD)
     end
 
     if ~isfield(MD,'tpw') && all(isfield(MD,{'RH','Ta'}))
+        
+        warningdisabler = naptime('cleanup:average'); %#ok<NASGU>
+        MDc = cleanup(MD); % use a sing Ta & RH channels
+        tpw = pvl_calcPwat(MDc.data.Ta,MDc.data.RH*100)*10;
+        clear MDc warningdisabler
+        
         % if ~isfield(MD,'air_density'), rho = wetair.density(MD.Ta,MD.RH,MD.Patm); end
-        MD = addsource(MD,'tpw',pvl_calcPwat(MD.data.Ta,MD.data.RH*100)*10,'pvl_calcPwat');
+        MD = addsource(MD,'tpw',tpw,'pvl_calcPwat');
         % MD.flags.data.tpw = bitset(MD.flags.data.tpw,b(2));
     end
 

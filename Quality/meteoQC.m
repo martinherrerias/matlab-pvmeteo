@@ -724,14 +724,14 @@ methods (Static = true)
         validateattributes(order,{'numeric'},{'vector','integer','positive','<=',m,'numel',m},'','order'); 
         
         available = isfinite(x);
+        pass = available;
         if ~any(available), return; end
         
         n = nnz(available);
         best_score = 0;
         best_units = 0;
         best_x = x;
-        pass = false(size(x));
-        
+
         current_score = NaN;
         for j = order(:)'
             if isnumeric(convfcn{j})
@@ -785,12 +785,17 @@ methods (Static = true)
     
         if nargin < 3 || (~iscell(fields) && isempty(fields))
             fields = fieldnames(MD);
+        else
+            fields = intersect(fields,fieldnames(MD)); 
         end
 
         for j = 1:numel(fields)
             V = MD.(fields{j});
             B = repmat(flag_bits,size(V));
             F = repmat(MD.flags.data.(fields{j}),1,1,m);
+            if ~isequal(size(B),size(F))
+               error('Incomplete flags for field: %s',fields{j}); 
+            end
             notok = any(bitget(F,B),3);
             if any(notok)
                 MD.(fields{j})(notok) = NaN;

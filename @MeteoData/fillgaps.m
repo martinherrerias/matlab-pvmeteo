@@ -21,8 +21,8 @@ function [Xc,varargout] = fillgaps(X,dt,timescale,varargin)
 %
 %   ..,'name',val,'-flag',.. Any additional options will be passed directly to MSSA.
 %
-% [xc,Xr,Rc,..] = FILLGAPS(..) - Return original output of MSSA
-%
+% [xc,Xr,S,Rc,..] = FILLGAPS(..) - Return original output of MSSA
+% 
 % See also: MSSA, COMPLETEMETEODATA, BESTESTIMATE
 
     if nargin == 0, test(); return; end
@@ -77,6 +77,10 @@ function [Xc,varargout] = fillgaps(X,dt,timescale,varargin)
     if isempty(opt.lags)
         % opt.lags = unique(round([1:3/timescale,(1:3)*24/timescale]));
         opt.lags = unique(round([(1:7),(1:7)/timescale,(1:7)*24/timescale]));
+        
+        [n,D] = size(Xr);
+        maxlag = min([n/2,floor(maxarraysize()/(4*n*D))]);
+        opt.lags(opt.lags > maxlag) = [];
     end
 
     % Gap-filling via 
@@ -94,8 +98,9 @@ function [Xc,varargout] = fillgaps(X,dt,timescale,varargin)
             RC = single(W*double(RC));
             RC = reshape(RC,N,size(Xr,2),[]); 
         end
+    else
+        Xc = Xr;
     end
-     
     Xc(available) = X(available); % Restore original points, whenever valid
 
     % GUIfigure('debug'); clf(); hold on

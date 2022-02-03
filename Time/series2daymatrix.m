@@ -35,9 +35,9 @@ function [Z,x,y,F] = series2daymatrix(t,z,varargin)
     t.TimeZone = 'UTC'; % must use UTC, otherwise it might skip steps due to DST
 
     % offset = t(1) - t0 - dt/2;
-    tend = t(1) + days(ceil(days(t(end)-t(1)))) - dt/2;
-
-    t = [t;(t(end)+dt:dt:tend)'];
+    t_end = t(1) + days(ceil(days(t(end)-t(1)+dt))) - dt/2;
+    
+    t = [t;(t(end)+dt:dt:t_end)'];
     
     t.TimeZone = TZ;   
     M = numel(t);
