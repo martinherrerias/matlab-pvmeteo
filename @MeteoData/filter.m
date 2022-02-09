@@ -106,7 +106,6 @@ function MD = filter(MD,varargin)
         end
 
         MD = filterstructure(MD,usefulsteps,varargin{:});
-        MD.missing = ~usefulsteps; 
         % MD.t = t(usefulsteps);
     end
 
@@ -138,8 +137,8 @@ function filter = parsefilter(MD,expr)
     % [~,~,dayidx] = unique([Time.year,Time.month,Time.day],'row');
     [~,~,dayidx] = unique([year(MD.t),month(MD.t),day(MD.t)],'row');
     
-    availability = accumarray(dayidx,MD.available,'sum')./ ...
-                   accumarray(dayidx,~MD.dark,'sum');
+    availability = accumarray(dayidx,MD.available & ~MD.dark,[],@sum)./ ...
+                   accumarray(dayidx,~MD.dark,[],@sum);
                
     available = availability(dayidx) > MINAVAIL;
 

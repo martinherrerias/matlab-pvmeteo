@@ -154,6 +154,9 @@ methods
             MD.dark = MD.dark | MD.data.sunel < MD.options.minSunEl;
         end
         MD.missing = ~any(isfinite(MD.data{:,:}),2);
+        
+        f = intersect(MD.data.Properties.VariableNames,MeteoData.varnames('irradiance'));
+        MD.available = any(isfinite(MD.data{:,f}),2);
     end
  
     function MD = set.interval(MD,k)
@@ -538,9 +541,9 @@ methods
         end
         MD.t = parsetime(MD.t,'-gridded');
         
-        % MD.timestep = minutes(NaN);
-        [MD,idx] = MeteoData.loadobj(MD);
-        MD = refresh(MD);
+        t0 = MD.t;
+        MD = MeteoData.loadobj(MD);
+        [~,idx] = intersect(MD.t,t0);
         
         if ~isequal(MD.timestep,original.timestep)
         % Update effective solar position
@@ -553,11 +556,15 @@ methods
                 MD = getsunpos(MD);
             end
         end
-
+        
         MD.data = MD.data(idx,:);
         MD.flags.data = MD.flags.data(idx,:);
+        if ~isempty(MD.uncertainty)
+            MD.uncertainty.data = MD.uncertainty.data(idx,:);
+        end
         MD.interval = original.interval;
         MD.t.TimeZone = original.TimeZone;
+        MD = refresh(MD);
     end
 
     function C = horzcat(A,B)
@@ -678,11 +685,14 @@ methods
         
         f = intersect(allfields,MeteoData.varnames('sunpos'));
         P = table2struct(MD.data(:,f),'toscalar',true);
+        P = renamefields(P,{'sunel','El';'sunaz','Az';'hourangle','w';'declination','dec'});
 
         f = MeteoData.varnames({'ambient','clearsky','indices'});
         f = intersect(allfields,f);
         B = completestruct(B,table2struct(MD.data(:,f),'toscalar',true));
-    
+        
+        B.ENI = P.ENI;
+        P = rmfield(P,'ENI');
     end
     
 end

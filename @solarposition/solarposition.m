@@ -479,8 +479,9 @@ function [az,el,w,d,T] = sunposgrid(lat,varargin)
     DEF.matrix = false;
     DEF.plot = false;
 
-    [opt,varargin] = getflagoptions(varargin,{'-rectangular','-matrix','-plot'});
-    opt = getpairedoptions(varargin,completeoptions(opt,DEF),'dealrest',1);
+    opt = parseoptions(varargin,{'-rectangular','-matrix','-plot'},DEF,'dealrest',1);
+    % [opt,varargin] = getflagoptions(varargin,{'-rectangular','-matrix','-plot'});
+    % opt = getpairedoptions(varargin,completeoptions(opt,DEF),'dealrest',1);
 
     parsestruct(opt,{'lattice'},'-n','-r','-f','-v',@(x) any(numel(x) == [1,2]));
     parsestruct(opt,{'maxdec','minSunEl'},'-n','-r','-f','-s');
