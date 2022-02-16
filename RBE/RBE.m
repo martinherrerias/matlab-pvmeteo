@@ -59,7 +59,6 @@ function RES = RBE(MD,TPM,usedvar,varargin)
     
     Ny = size(Y,2);
     
-    
     typ = cellfun(@(x) strcmp(types,x),KNOWN,'unif',0);
     typ = cell2struct(typ',KNOWN);
     
@@ -99,7 +98,6 @@ function RES = RBE(MD,TPM,usedvar,varargin)
     x0 = [kn_grid(:),kd_grid(:)];
     Dxixj = pdist(x0,'euclidean');
     Dxixj = squareform(Dxixj);
-    Dxxi = pdist2(single([MD.kn,MD.kd]),x0);
     w = point_weights(g{:});
     
     RES.PIT = NaN(MD.Nt,2);
@@ -108,6 +106,24 @@ function RES = RBE(MD,TPM,usedvar,varargin)
     RES.energy = NaN(MD.Nt,1);
     RES.rmse = NaN(MD.Nt,1);
     RES.map = NaN(MD.Nt,3);
+    RES.w = w;
+    RES.g = g;
+    
+%     RES.mapi = NaN(MD.Nt,3);
+%     [g{:}] = ndgrid(g{:});
+%     G = griddedInterpolant(g{:},dawn,'makima');
+%     searchopt = optimset(optimset('fminsearch'),'TolX',1e-4,'Display','none');
+%     
+%     function [x,y] = nearbymax(V,x0,y0)
+%         G.Values = double(V);
+%         fn = @(x) -G(x(1),x(2));
+%         [x,y] = fminsearch(fn,double(x0),searchopt);
+%         y = -y;
+%         if y < y0
+%             x = x0; y = y0;
+%             keyboard();
+%         end
+%     end
     
     if Ny > 1 && opt.benchmark
         eg = [{single(1:Ny)},g];
@@ -130,10 +146,13 @@ function RES = RBE(MD,TPM,usedvar,varargin)
     end
     
     window = hours(1)/MD.timestep; % PROVISIONAL
+    
+    np = numel(picks);
+    wb = optwaitbar(0,'RBE','UI',false);
   
-    for k = 1:numel(picks)
+    for k = 1:np
         d = picks(k);
-        fprintf('Day %d/%d\n',k,numel(picks));
+        wb.update(k/np,sprintf('Day %d/%d\n',k,np),'-addtime');
         
         if opt.plot && opt.record
             videoname = ['./fig/' testname '_' config_name '_' datestr(days(d),'yyyymmdd')];
@@ -219,6 +238,8 @@ function RES = RBE(MD,TPM,usedvar,varargin)
                 [map,idx] = max(R,[],1:2,'linear');
                 RES.map(t,:) = [kn_grid(idx),kd_grid(idx),map];
                 
+                % [RES.mapi(t,1:2),RES.mapi(t,3)] = nearbymax(R,RES.map(t,1:2),RES.map(t,3));
+                
                 % PROVISIONAL: get moving-average Kt from the MAP estimate
                 % Kt should strictly be a third (probabilistic) state variable, so that
                 % the prior conditioned on Kt can be integrated on all P(Kt) > 0
@@ -232,9 +253,12 @@ function RES = RBE(MD,TPM,usedvar,varargin)
                 px = interpn(kn_grid,kd_grid,R,MD.kn(t),MD.kd(t));
                 RES.ignorance(t) = -log2(max(opt.minP,px));
                 RES.box(t) = 1-sum(W(R <= px),1:2);
+                
+                % TODO: Should the statistics be based on a discrete distribution, i.e. W instead of R?
 
                 W = reshape(W,numel(w),[])';
-                RES.energy(t) = sum(W.*Dxxi(t,:),2) - 0.5*sum(W.*(W*Dxixj),2);
+                Dxxi = single(hypot(MD.kn(t)-x0(:,1),MD.kd(t) - x0(:,2)));
+                RES.energy(t) = W*Dxxi - 0.5*sum(W.*(W*Dxixj),2);
             end
 
             if opt.plot
@@ -298,11 +322,14 @@ function ax = plotstep(ax,x,y,P,Q,R,x0,y0,xe,ye,Xt,Yt,sunel)
     H{5} = cdfcontour(ax(3),R,cb(3));
     H{6} = plot(ax(3),x0,y0,'ro','markersize',10);
     
+    [~,idx] = max(R,[],1:2,'linear');
+    H{7} = plot(ax(3),x(idx),y(idx),'b+','markersize',10);
+    
     if ~isempty(xe)
-        H{7} = plot(ax(3),xe,ye,'mx','markersize',10);
-        legend(ax(3),cat(1,H{5:7}),'RBE Posterior','True (measured)','Deterministic','edgecolor','w');
+        H{8} = plot(ax(3),xe,ye,'mx','markersize',10);
+        legend(ax(3),cat(1,H{5:8}),'RBE Posterior','True (measured)','MAP','Deterministic','edgecolor','w');
     else
-        legend(ax(3),cat(1,H{5:6}),'RBE Posterior','True (measured)','edgecolor','w');
+        legend(ax(3),cat(1,H{5:7}),'RBE Posterior','True (measured)','MAP','edgecolor','w');
     end
     
     function H = cdfcontour(ax,P,cb)
@@ -496,7 +523,7 @@ function [Q,E] = getlikelyhood(Y,S,typ,kd,kn,ENI,sunel,sunaz,albedo,surftilt,sur
         end
         u = uncertainty(S(useful),Y(useful),sunaz,sunel,b)/1.96;
         iam = arrayfun(@(s) s.fIAM(max(0,90-sunel)),S(useful));
-        G_mdl = G.(fld{j}) - b.*(1-iam).*sind(sunel);
+        G_mdl = G.(fld{j}) - b.*(1-iam(:)').*sind(sunel);
     
         if ~isfield(typ,fld{j}) || strcmp(fld{j},'GTI'), continue; end
 
