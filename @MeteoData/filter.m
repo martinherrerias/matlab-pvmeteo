@@ -45,9 +45,8 @@ function MD = filter(MD,varargin)
     printif = @(varargin) opt.verbose && fprintf(varargin{:});
 
     original_interval = MD.interval;
-    if ~isregular(MD.data)
-        MD = MeteoData.loadobj(MD);
-    end
+    if ~isregular(MD.data), MD = checktimestamps(MD); end
+    
     if ~any(MD.interval=='ci'), original_interval = MD.interval; MD.interval = 'c'; end
     dt = MD.timestep;
 
@@ -55,6 +54,7 @@ function MD = filter(MD,varargin)
     localtime.TimeZone = MD.location.TimeZone;
 
     usefulsteps = parsefilter(MD,opt.filter);
+    assert(any(usefulsteps),'meteo.filter yielded no useful steps');
 
     % Average data every 'timestep' points to get desired resolution
     if isduration(opt.downsample), opt.downsample = opt.downsample/dt; end
@@ -65,13 +65,18 @@ function MD = filter(MD,varargin)
         available = MD.available;
 
         MD.t.TimeZone = 'UTC';
-        MD.interval = 'c';
-        
-        MD.data = avgdownsample(MD.data,opt.downsample,usefulsteps,'logical',opt.minavail,'omitnan',varargin{:});
+                
+        % MD.data = avgdownsample(MD.data,opt.downsample,usefulsteps,'logical',opt.minavail,'omitnan',varargin{:});
+        MD.data = resamplestructure(MD.data,[1,opt.downsample],'omitnan',true,'-centered');
+        % MD.data = avgdownsample(MD.data,opt.downsample,usefulsteps,'logical',opt.minavail,'omitnan',varargin{:});
         if ~isempty(MD.uncertainty)
-           MD.uncertainty = avgdownsample(MD.uncertainty.data,usefulsteps,'omitnan');
+           % MD.uncertainty = avgdownsample(MD.uncertainty.data,usefulsteps,'omitnan');
+           MD.uncertainty.data = resamplestructure(MD.uncertainty.data,[1,opt.downsample],'omitnan',true,'-centered');
         end
-        MD.flags = avgdownsample(MD.flags,opt.downsample,usefulsteps);
+        % MD.flags = avgdownsample(MD.flags,opt.downsample,usefulsteps);
+        MD.flags = resamplestructure(MD.flags,[1,opt.downsample],'omitnan',true,'-centered');
+        MD = checktimestamps(MD,false);
+        
         usefulsteps = avgdownsample(usefulsteps,opt.downsample,'logical',opt.minavail,varargin{:});
 
         % Average Time structure (not considering filter)

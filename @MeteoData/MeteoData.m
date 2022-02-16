@@ -48,7 +48,7 @@ properties (GetAccess = public, SetAccess = public)
     
     location = struct.empty;  % structure, see PARSELOCATION
     interval = '';            % {'i','c','b','e'} interval summarization (instant / center / beginning / end)
-    timestep     % DURATION scalar (MD.data.Properties.TimeStep, if regular)
+    timestep                  % DURATION scalar (MD.data.Properties.TimeStep, if regular)
     info ={''}                % free cellstring
     
     options = struct.empty    % SimOptions.meteo and others
@@ -88,14 +88,24 @@ methods
         end
     end
     
-    % function dt = get.timestep(MD), dt = MD.data.Properties.TimeStep; end
+    function dt = get.timestep(MD)
+        if isregular(MD.data)
+            dt = MD.data.Properties.TimeStep;
+            if ~isempty(MD.timestep) && isfinite(MD.timestep) && ~isequal(MD.timestep,dt)
+                warning('Inconsistent timestep: %s (property) vs %s (table)',...
+                    isoduration(dt),isoduration(MD.timestep));
+            end
+        else
+            dt = MD.timestep;
+        end
+    end
     function MD = set.timestep(MD,dt)
         if isempty(dt), dt = minutes(NaN); end
         validateattributes(dt,'duration',{'scalar'});
         MD.timestep = dt;
-        if isregular(MD.data)
+        if ~isempty(MD.data) && isregular(MD.data)
             dt0 = MD.data.Properties.TimeStep;
-            if dt ~= dt0
+            if abs((dt - dt0)/max(dt,dt0)) > 1e-2
                 warning('Inconsistent timestep: %s (property) vs %s (table)',...
                     isoduration(dt),isoduration(dt0));
             end
@@ -103,6 +113,16 @@ methods
     end
     
     function Nt = get.Nt(MD), Nt = size(MD.data,1); end
+    
+    function f = get.dark(MD)
+        if isempty(MD.dark), MD = refresh(MD); end; f = MD.dark;
+    end
+    function f = get.missing(MD)
+        if isempty(MD.missing), MD = refresh(MD); end; f = MD.missing;
+    end
+    function f = get.available(MD)
+        if isempty(MD.available), MD = refresh(MD); end; f = MD.available;
+    end
     
     function source = get.source(MD), source = MD.data.Properties.CustomProperties.source; end
     function MD = set.source(MD,source)
@@ -144,16 +164,31 @@ methods
     
     function MD = refresh(MD)
     % Update transient properties MD.dark & MD.available
+    
+        opt = MD.options;
+
+        dt = MD.timestep;
+        if isempty(dt) || isnan(dt), MD = checktimestamps(MD,false); end
+        
+        f = ~any(isfinite(MD.data{:,:}),2);
+        if opt.fillgaps > 0
+        % Don't flag small gaps as missing data
+            ixm = find(~f);
+            d = interp1(ixm,ixm,1:N,'next','extrap')-interp1(ixm,ixm,1:N,'previous','extrap') - 1; 
+            f(d <= opt.fillgaps) = false;
+        end
+        MD.missing = f;
+        
         FLD = intersect(fieldnames(MD),MeteoData.varnames('irradiance'));
         if ~isempty(FLD)
-            MD.dark = ~any(MD.data{:,FLD} > MD.options.minGHI,2);
+            dunkel = ~any(MD.data{:,FLD} > MD.options.minGHI,2);
         else
-            MD.dark = false(MD.Nt,1);
+            dunkel = false(MD.Nt,1);
         end
         if isfield(MD,'sunel')
-            MD.dark = MD.dark | MD.data.sunel < MD.options.minSunEl;
+            dunkel = dunkel | MD.data.sunel < MD.options.minSunEl;
         end
-        MD.missing = ~any(isfinite(MD.data{:,:}),2);
+        MD.dark = dunkel;
         
         f = intersect(MD.data.Properties.VariableNames,MeteoData.varnames('irradiance'));
         MD.available = any(isfinite(MD.data{:,f}),2);
@@ -232,7 +267,22 @@ methods
         F = cat(2,F{:});
     end
     
-    function MD = addsource(MD,fld,val,src,overwrite)
+    function MD = addfield(MD,fld,val,src,overwrite)
+        Nc = size(val,2);
+        if nargin < 4 || isempty(src), src = []; end
+        if nargin < 5 || isempty(overwrite), overwrite = false; end
+        
+        if ischar(src) || isempty(src), src = {src}; end
+        if Nc > 1 && isscalar(src), src = repmat(src,1,Nc); end
+        validateattributes(src,'cell',{'vector','numel',Nc});
+        
+        if overwrite && isfield(MD,fld), MD = rmfield(MD,fld); end
+        for j = 1:Nc
+            MD = addsource(MD,fld,val(:,j),src{j});
+        end
+    end
+    
+    function [MD,ib,n] = addsource(MD,fld,val,src,overwrite)
     % MD = ADDSOURCE(MD,FLD,VAL,[SRC]) - Add column with source-ID SRC to existing field FLD,
     %   creating a new field if it doesn't exist. Just specifying FLD uses the default source
     %   ID 'FLD.N' where N is the number of columns of MD.FLD (after adding the new VAL).
@@ -241,7 +291,7 @@ methods
         
         validateattributes(fld,{'char'},{'nonempty'},'','fld');
         % validateattributes(val,{'numeric','logical'},{'2d','size',[MD.Nt,NaN]},'','val');
-        if nargin < 4, src = []; 
+        if nargin < 4 || isempty(src), src = []; 
         else
             validateattributes(src,{'char'},{'nonempty'},'','src');
         end
@@ -275,6 +325,19 @@ methods
            src = usrc;
         end
         MD.data.Properties.CustomProperties.source{ib}(n) = {src};
+    end
+    
+    function MD = fieldop(MD,fld,op)
+        src = getsourceof(MD,fld);
+        [X,F] = getbysource(MD,src);
+
+        X = op(X);
+        G = zeros(size(X),meteoQC.TYPE); 
+        for k = 2:numel(MD.flags.flags)
+            G = bitset(G,k,op(bitget(F,k)));
+        end
+        MD.data.(fld) = X;
+        MD.flags.data.(fld) = G;
     end
     
     MD = removemissing(MD,fld,E,W,quiet)
@@ -333,9 +396,13 @@ methods
         
         if ~isempty(MD.options)
             [~,~,msg] = comparestruct(MD.options,opt,'and');
-            if ~isempty(msg), warning('Overriding options:\n%s',msg); end
+            if ~isempty(msg)
+                warning('Overriding options:\n%s',strjoin(msg,newline())); 
+            end
             [~,~,msg] = comparestruct(MD.options,opt,'diff');
-            if ~isempty(msg), warning('Removing obsolete/unknown options:\n%s',msg); end
+            if ~isempty(msg)
+                warning('Removing obsolete/unknown options:\n%s',strjoin(msg,newline())); 
+            end
         end
         MD.options = opt;
         
@@ -433,9 +500,10 @@ methods
     
     MD = checksensors(MD,sensors,assumedefaults)
 
-    function MD = checktimestamps(MD)
+    function MD = checktimestamps(MD,regular)
     % obj.checktimestamps() - Timestep parsing & regularization (assume UTC, if missing)
 
+        if nargin < 2, regular = true; end
         dt = MD.timestep;
 
         if isempty(MD.interval)
@@ -465,8 +533,8 @@ methods
         MD.timestep = dt;
         MD.interval = MD.interval(end);
 
-        MD.missing = true(numel(u),1);
-        MD.missing(idx) = false;
+        notthere = true(numel(u),1);
+        notthere(idx) = false;
 
         n = accumarray(ia,1);
         % repeated = idx(n > 1);
@@ -475,7 +543,7 @@ methods
         % Average repeated time-steps, re-sort and regularize
 
             F = sparse(idx(ia),1:numel(ia),1./n(ia),numel(u),numel(ia));
-            % F = F + sparse(find(MD.missing),1,NaN,numel(u),numel(ia));
+            % F = F + sparse(find(notthere),1,NaN,numel(u),numel(ia));
             % MD = filterstructure(MD,F);
             
             MD.data = filterstructure(MD.data,F);
@@ -485,8 +553,16 @@ methods
             end
             MD.t = parsetime(MD.t,'-gridded');
         
-            MD.data{MD.missing,:} = deal(NaN);
-            MD.t = u;
+            if regular
+                MD.data{notthere,:} = NaN(size(MD.data{notthere,:}));
+                MD.t = u;
+            else
+                MD.data(notthere,:) = [];
+                MD.flags.data(notthere,:) = [];
+                if ~isempty(MD.uncertainty)
+                    MD.uncertainty.data(notthere,:) = [];
+                end
+            end
             MD = refresh(MD);
         end
     end
@@ -496,6 +572,7 @@ methods
     %   Any arguments are passed as flags / name-value pairs to CHECKUTCOFFSET.
     
         parselocation(MD.location);
+        if ~isregular(MD.data), MD = checktimestamps(MD); end
         try
             if isfield(MD,'GHI')
                 GHI = mean(MD.data.GHI,2,'omitnan');
@@ -514,6 +591,8 @@ methods
         end        
         if offset~=0
             MD.t = MD.t - offset;
+            MD = getsunpos(MD,0,1);
+            MD = refresh(MD);
         end
     end
 
@@ -539,11 +618,7 @@ methods
         if ~isempty(MD.uncertainty)
             MD.uncertainty.data = filterstructure(MD.uncertainty.data,varargin{:});
         end
-        MD.t = parsetime(MD.t,'-gridded');
-        
-        t0 = MD.t;
-        MD = MeteoData.loadobj(MD);
-        [~,idx] = intersect(MD.t,t0);
+        MD = checktimestamps(MD,false);
         
         if ~isequal(MD.timestep,original.timestep)
         % Update effective solar position
@@ -556,12 +631,7 @@ methods
                 MD = getsunpos(MD);
             end
         end
-        
-        MD.data = MD.data(idx,:);
-        MD.flags.data = MD.flags.data(idx,:);
-        if ~isempty(MD.uncertainty)
-            MD.uncertainty.data = MD.uncertainty.data(idx,:);
-        end
+
         MD.interval = original.interval;
         MD.t.TimeZone = original.TimeZone;
         MD = refresh(MD);
@@ -643,7 +713,8 @@ methods
             
             if numel(MD.source{j}) > 1
                 warning('cleanup:average','Using simple average of %s',shortliststr(MD.source{j}));
-                MD.data.(fld{k}) = mean(MD.data{:,j},2,'omitnan');
+                % MD.data.(fld{k}) = mean(MD.data{:,j},2,'omitnan');
+                MD = MD.fieldop(fld{k},@(X) mean(X,2,'omitnan'));
             end
         end
         
@@ -666,7 +737,8 @@ methods
             
             if numel(MD.source{j}) > 1
                 warning('cleanup:average','Using simple average of %s',shortliststr(MD.source{j}));
-                MD.data.(fld{k}) = mean(MD.data{:,j},2,'omitnan');
+                % MD.data.(fld{k}) = mean(MD.data{:,j},2,'omitnan');
+                MD = MD.fieldop(fld{k},@(X) mean(X,2,'omitnan'));
             end
         end
     end
@@ -679,6 +751,7 @@ methods
     %   U: irradiance uncertainty
     
         [MD,B,U] = bestimate(MD);
+        % B = timetable2struct(MD.data(:,{'kn','kt','kd'}));
         MD = cleanup(MD);
 
         allfields = MD.data.Properties.VariableNames;
@@ -697,26 +770,9 @@ methods
     
 end
 methods (Static = true)
-    function MD = loadobj(MD)
-    % OBJ = LOADOBJ(OBJ) - calculate and set all transient properties.
-
-        opt = MD.options;
-
-        if ~isregular(MD.data), MD = checktimestamps(MD); end          
-        missing = ~any(isfinite(MD.data{:,:}),2);
-        
-        if opt.fillgaps > 0
-        % Don't flag small gaps as missing data
-            ixm = find(~missing);
-            d = interp1(ixm,ixm,1:N,'next','extrap')-interp1(ixm,ixm,1:N,'previous','extrap') - 1; 
-            missing(d <= opt.fillgaps) = false;
-        end
-        MD.missing = missing;
-                
-        % MD = getsunpos(MD);git s
-        MD = refresh(MD);
-        % MD = getuncertainty(MD);        
-    end
+%     function MD = loadobj(MD)
+%        MD = refresh(MD); % does not work :( since MD is not an object yet
+%     end
     
     function MD = import(filename,sensorsfile,filetype,varargin)
     % MD = METEODATA.IMPORT(filename,sensorsfile,filetype,...) - wrapper for METEODATA.GETMETEODATA
@@ -725,6 +781,8 @@ methods (Static = true)
         if nargin < 1 || isempty(filename), filename = pickfile({'*.meteo'}); end
         if nargin < 2 || (isempty(sensorsfile) && ~iscell(sensorsfile))
             sensorsfile = pickfile('*.sensors',Inf,'ui',1); 
+        else
+            sensorsfile = cellstr(sensorsfile);
         end
         if nargin < 3 || isempty(filetype), filetype = ''; end
         

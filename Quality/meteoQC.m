@@ -794,7 +794,8 @@ methods (Static = true)
             B = repmat(flag_bits,size(V));
             F = repmat(MD.flags.data.(fields{j}),1,1,m);
             if ~isequal(size(B),size(F))
-               error('Incomplete flags for field: %s',fields{j}); 
+               warning('Inconsistent flags for field: %s',fields{j});
+               continue;
             end
             notok = any(bitget(F,B),3);
             if any(notok)

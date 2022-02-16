@@ -100,9 +100,9 @@ function MD = fitclearsky(MD,varargin)
     validateattributes(MD,{'MeteoData'},{'nonempty'});    
     assert(isfield(MD,'GHI'),'FITCLEARSKY currently requires GHI')
     
-    if ~isregular(MD.data) || any(~isfield(MD,{'sunel','AMa','ENI'}))
-        MD = MeteoData.loadobj(MD); 
-    end
+    if ~isregular(MD.data),  MD = checktimestamps(MD); end
+    if any(~isfield(MD,{'sunel','AMa','ENI'})), MD = getsunpos(MD); end
+
     if MD.interval ~= 'i', MD.interval = 'c'; end
     dt = minutes(MD.timestep);
     

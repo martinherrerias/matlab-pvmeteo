@@ -13,6 +13,8 @@ function MD = checksensors(MD,sensors,assumedefaults)
     n = cellfun(@(f) size(MD.data.(f),2),varnames);
 
     if nargin < 2 || isempty(sensors), sensors = MeteoSensor.empty; end
+    if isempty(MD.sensors), MD.sensors = MeteoSensor.empty; end
+    
     validateattributes(sensors,{'MeteoSensor'},{},'','sensors');
     validateattributes(MD.sensors,{'MeteoSensor'},{},'','MD.sensors');
 
@@ -53,7 +55,7 @@ function MD = checksensors(MD,sensors,assumedefaults)
         assigned_vars = cellfun(@any,mat2cell(assigned_sources,1,n));
         % known = ismember(varnames,MeteoData.varnames('all'));
         
-        [~,ix] = parselist(sensIDs(~assigned_sensors),varnames(~assigned_vars),'-soft');
+        [~,ix] = parselist(sensIDs(~assigned_sensors)',varnames(~assigned_vars)','-soft');
         if iscell(ix)
             [~,ix] = parselist(sensIDs(~assigned_sensors),varnames(~assigned_vars),'-soft','-matchcase');
         end
@@ -83,7 +85,7 @@ function MD = checksensors(MD,sensors,assumedefaults)
                 MD = checksources(MD);
             end
 
-            [MD.sensors(~assigned_sensors).ID] = deal(newIDs{:});
+            [MD.sensors(is).ID] = deal(newIDs{:});
 
             source_list = cat(2,MD.source{:}); 
             varnames = MD.data.Properties.VariableNames;
@@ -120,7 +122,7 @@ function MD = checksensors(MD,sensors,assumedefaults)
     if ~any(assumed), return; end
 
     if ~assumedefaults
-        warning(shortliststr(source_list(assumed),'Missing sensor'));
+        warning('checksensors:missing',shortliststr(source_list(assumed),'Missing sensor'));
         return;
     end
 
@@ -131,7 +133,7 @@ function MD = checksensors(MD,sensors,assumedefaults)
         idx = (typeidx == j);
         S = cellfun(@(id) MeteoSensor(varnames{j},'ID',id),source_list(idx));
         [S.ID] = deal(source_list{idx});
-        MD.sensors = [MD.sensors,S];
+        MD.sensors = [MD.sensors(:)',S];
     end
 end
 

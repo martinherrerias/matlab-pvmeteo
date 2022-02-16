@@ -34,7 +34,7 @@ function MD = completemeteodata(MD)
 %         User-Interactive tool for inspection, filtering, and correction
 %
 % See also: GUIMETEO, GETMETEODATA, PVLMOD_SPA, GTI2COMPONENTS, SENSORUNCERTAINTY
-%   CHECKUTCOFFSET, METEOQC.TEST, METEODATA.LOADOBJ, METEODATA.REFRESH, GETSUNPOS
+%   CHECKUTCOFFSET, METEOQC.TEST, METEODATA.REFRESH, GETSUNPOS
 
     opt = MD.options;
 
@@ -49,11 +49,7 @@ function MD = completemeteodata(MD)
     MD = removemissing(MD,{'GHI'}); 
     
     printif('Checking UTC offset...\n');
-    MD = checkUTCoffset(MD);          % verify Time Zone
-
-    printif('MeteoData.loadobj...\n');
-    MD = MeteoData.loadobj(MD);       % Make uniform time series, get solar position
-    MD = getsunpos(MD);
+    MD = checkUTCoffset(MD);  % verify Time Zone
 
     % from here on work in UTC, center-of-interval, uniform timesteps
     MD.t.TimeZone = 'UTC';

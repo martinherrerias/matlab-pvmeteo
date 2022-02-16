@@ -28,7 +28,7 @@ function MD = getsunpos(MD,check,rewrite)
             if size(incomplete,2) > 1, incomplete = all(incomplete,2); end
             if all(incomplete), break; end
         end
-        if ~any(incomplete), return; end
+        if ~any(incomplete), MD = refresh(MD); return; end
     else
         incomplete = true(MD.Nt,1);
     end
@@ -147,4 +147,5 @@ function MD = getsunpos(MD,check,rewrite)
             end
         end
     end
+    MD = refresh(MD);
 end

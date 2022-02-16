@@ -98,10 +98,10 @@ function MD = firstguess(MD,discardflags)
     % Get everything from GHI, using DIRINT model for diffuse fraction
 
         args = {kt,'sza',90-MD.data.sunel,'Patm',MD.data.Patm}; % reindl, Orgill-Hollands, DISC, etc.
-        if isfield('CSGHI')
+        if isfield(MD,'CSGHI')
             CSGHI = max(MD.data.CSGHI,[],2);
             ktc = CSGHI./EHI; ktc(~isfinite(CSGHI) | EHI <= 0) = NaN;
-            args = [args,{'ktc',ktc,'hourangle',SP.w}]; % Engerer2 inputs
+            args = [args,{'ktc',ktc,'hourangle',MD.data.hourangle}]; % Engerer2 inputs
         end
         if isfield(MD,'tpw')
             args = [args,{'tpw',MD.data.tpw,'timeseries',true}]; % DIRINT inputs
@@ -134,7 +134,12 @@ function MD = firstguess(MD,discardflags)
     [K,~,Uk] = MeteoData.fillgaps(K,MD.timestep,hours(1),'exclude',MD.dark | MD.missing);
     K = max(K,0);
 
-    U0 = [U.GHI,U.DHI,U.BNI]./[EHI,EHI,MD.data.ENI];
+    U0 = NaN(numel(EHI),3);
+    if isfield(U,'GHI'), U0 = U.GHI; end
+    if isfield(U,'DHI'), U0 = U.DHI; end
+    if isfield(U,'BNI'), U0 = U.BNI; end
+    U0 = U0./[EHI,EHI,MD.data.ENI];
+    
     Uk(~tofill) = min(U0(~tofill),Uk(~tofill));
     
     [U.kt,U.kd,U.kn] = deal(Uk(:,1),Uk(:,2),Uk(:,3));
@@ -146,7 +151,7 @@ function MD = firstguess(MD,discardflags)
     tofill(:,4) = any(tofill,2);
     fld = {'kt','kd','kn','F1'};
     for j = 1:4
-        MD = addsource(MD,fld{j},S.(fld{j}),['simpleguess.',fld{j}],true);
+        MD = addfield(MD,fld{j},S.(fld{j}),['simpleguess.',fld{j}],true);
         MD.flags.(fld{j}) = bitset(MD.flags.(fld{j}),b,tofill(:,j));
     end
     
