@@ -736,10 +736,10 @@ methods (Static = true)
         for j = order(:)'
             if isnumeric(convfcn{j})
                 validateattributes(convfcn{j},{'numeric'},{'real','scalar','finite','nonzero'},'','factors{j}'); 
-                u = x(available).*convfcn{j};
+                u = x.*convfcn{j};
             else
                 validateattributes(convfcn{j},{'function_handle'},{'scalar'},'','factors{j}'); 
-                u = convfcn{j}(x(available));
+                u = convfcn{j}(x);
             end
             ok = okfcn(u);
             if j == 1
@@ -749,12 +749,12 @@ methods (Static = true)
                 best_score = nnz(ok)/n;
                 best_units = j;
                 best_x = u;
-                pass(available) = ok;
+                pass = ok & available;
                 if best_score > threshold, break; end
             end
         end
         
-        x(available) = best_x;
+        x(available) = best_x(available);
         if best_units > 1
             warning('meteoQC:units',['Wrong units?: detected [%s] (%0.0f%% pass) ',...
                 'converted to [%s] (%0.0f%% pass)'],...

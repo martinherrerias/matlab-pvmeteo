@@ -60,7 +60,9 @@ function varargout = findfields(S,varargin)
 
         ALIAS.kt = {'kt','clearness_ghi','clearness_index'};
         ALIAS.kn = {'kn','clearness_dni','direct_clearness_index'};
-        ALIAS.kd = {'kd','fraction_diffuse','diffuse_fraction'};
+        ALIAS.kd = {'kd','clearness_dhi','diffuse_clearness_index'};
+        
+        ALIAS.rd = {'rd','fraction_diffuse','diffuse_fraction'};
 
         ALIAS.Patm = {'patm','pressure','pamb'};
         ALIAS.RH = {'rh','relhum','relative_humidity'};

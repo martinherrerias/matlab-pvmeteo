@@ -13,11 +13,11 @@ function MD = getuncertainty(MD)
     
     % TODO: tracking sensors!
     
-    if all(isfield(MD,{'kn','ENI'}))
+    if all(isfield(MD,{'kn','kd','ENI'}))
         Bn = MD.data.kn.*MD.data.ENI;
         
-        if isfield(MD,{'F1','kd'}), CSn = MD.data.F1;  % Perez Circumsolar fraction
-        else, CSn = MD.data.kn;                        % Hay-Davies approx.
+        if isfield(MD,'F1'), CSn = MD.data.F1;  % Perez Circumsolar fraction
+        else, CSn = MD.data.kn;                 % Hay-Davies approx.
         end
         CSn = CSn.*MD.data.kd.*MD.data.ENI;
         

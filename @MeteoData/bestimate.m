@@ -102,6 +102,7 @@ function MD = firstguess(MD,discardflags)
             CSGHI = max(MD.data.CSGHI,[],2);
             ktc = CSGHI./EHI; ktc(~isfinite(CSGHI) | EHI <= 0) = NaN;
             args = [args,{'ktc',ktc,'hourangle',MD.data.hourangle}]; % Engerer2 inputs
+            args = [args,{'dt',MD.timestep}]; % SOT4 input
         end
         if isfield(MD,'tpw')
             args = [args,{'tpw',MD.data.tpw,'timeseries',true}]; % DIRINT inputs

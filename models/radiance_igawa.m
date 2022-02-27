@@ -33,8 +33,9 @@ function varargout = radiance_igawa(MD,SP,SkyRegions,model)
 %	MeteoData.AMr - (optional) Nt-vector, Relative Air Mass
 %
 %	SunPos.El - Nt-vector, Solar elevation angle (degrees)
-%   SunPos.Az - Nt-vector, Solar azimuth angle (degrees), convention is irrelevant, but should be
-%   	coherent with the function arguments passed to LEA(az,el).
+%   SunPos.Az - Nt-vector, Solar azimuth angle (degrees), convention is assumed to be N2E 
+%       (astronomical), for SKYREGIONS defined in a system with x = East, y = North.
+%       For direct calls to LEA(az,el), convention is irrelevant, but should be consistent.
 %
 % OUTPUT:
 %   LEA = @(AZ,EL,[FILTER]) takes 1·M horizontal vectors of sky-element azimuth and elevation angles  
@@ -85,7 +86,7 @@ function varargout = radiance_igawa(MD,SP,SkyRegions,model)
     narginchk(2,4);
     % tol = getSimOption('RelTol');
         
-    parsestruct(MD,{'DHI','GHI','ENI'},'opt',{'AMr','kd','CSGHI'},'-n','-r','-v','-e');
+    parsestruct(MD,{'DHI','GHI','ENI'},'opt',{'AMr','CSGHI','CSDHI'},'-n','-r','-v','-e');
     parsestruct(SP,{'El','Az'},'-n','-f','-v','size',[numel(MD.GHI),1]);
     Nt = numel(MD.GHI);
     
@@ -93,30 +94,38 @@ function varargout = radiance_igawa(MD,SP,SkyRegions,model)
     if ~(isfield(MD,'AMr')), MD.AMr = pvl_relativeairmass(90-SP.El); end
 
     useful = MD.GHI > 0 & MD.DHI > 0 & SP.El >= 0;
-    dark = SP.El < 0 | MD.GHI == 0 | MD.DHI == 0;
+    dark = SP.El < 0 | MD.GHI <= 0 | MD.DHI <= 0;
     m = MD.AMr(useful);
     sunel = SP.El(useful);
-    sunaz = SP.Az(useful);
-    
+    sunaz = 90 - SP.Az(useful); % E2N
+
 %     % MHA: using pre-calculated clear-sky GHI!
 %     if isfield(MD,'CSGHI')
-%         Kc = min(1,MD.GHI./MD.CSGHI); 
+%         Kc = MD.GHI(useful)./MD.CSGHI(useful); 
 %     else
         TL0 = 2.5;
-        Ee0 = MD.ENI(useful).*max(0,cosd(sunel)); 
+        Ee0 = MD.ENI(useful); % .*max(0,cosd(sunel)); 
         Seeg = 0.84*Ee0./m.*exp(-0.027*TL0*m);      % ~ CSGHI
-        Kc = MD.GHI(useful)./Seeg;                 % Clear Sky Index
-        Kc = max(0,min(1,Kc));
+        Kc = MD.GHI(useful)./Seeg;                  % Clear Sky Index
 %     end
+    Kc = max(0,min(1,Kc));
     
     % Ce = Diffuse fraction, aka "Cloud Ratio"
-    if isfield(MD,'kd'), Ce = MD.kd(useful); 
-    else
-        Ce = MD.DHI(useful)./MD.GHI(useful);
-        Ce = max(0,min(1,Ce));
-    end
+    Ce = MD.DHI(useful)./MD.GHI(useful);
+    overcast = Ce >= 1;
+    Ce(overcast) = 1;
    
-    Ces = (m.^(0:4))*[0.01299,0.07698,-0.003857,0.0001054,-0.000001031]';
+%     % MHA: using pre-calculated clear-sky GHI!
+%     if all(isfield(MD,{'CSDHI','CSGHI'}))
+%         Ces = MD.CSDHI(useful)./MD.CSGHI(useful); 
+%     else
+            
+        % MHA: Igawa et al. use only points with sunel < 5°, so m < ~10.3 and Ces < 0.5
+        m = min(20,m);
+        % Kc(overcast) = min(0.5,Kc);
+        
+        Ces = (m.^(0:4))*[0.01299,0.07698,-0.003857,0.0001054,-0.000001031]';
+%     end
     Cle = (1-Ce)./(1-Ces);    % cloudless index
     Si = Kc+sqrt(Cle);        % Sky index
     Si = max(0,min(Si,2.0));

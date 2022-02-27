@@ -234,7 +234,7 @@ function [error,P0,Pb,msg] = checkUTCoffset(GHI,t,varargin)
     if error == 0 && P0 >= opt.minP, return; end % confident that error = 0
     
     if ~opt.quiet
-        hfig = offset_plot(GHI,CSGHI,lags,offset,c,lb,ub,P,dt,msg);   
+        hfig = offset_plot(t,GHI,CSGHI,lags,offset,c,lb,ub,P,dt,msg);   
     end
     
     if error == 0 || opt.quiet || ~runningfromUI()
@@ -301,7 +301,7 @@ function varargout = cellresample(n,m,varargin)
 %     end
 end
 
-function hfig = offset_plot(x,y,lags,offset,c,lb,ub,P,dt,msg)
+function hfig = offset_plot(t,x,y,lags,offset,c,lb,ub,P,dt,msg)
 
     hfig = GUIfigure('UTCoffset','UTC-offset check','3:1'); clf(hfig);
     ax = subplot(1,3,1:2); 
@@ -309,12 +309,12 @@ function hfig = offset_plot(x,y,lags,offset,c,lb,ub,P,dt,msg)
 
     title(ax,msg);
     hold(ax,'on');
-    plot(ax,x);
-    plot(ax,y);
-    plot(ax,circshift(x,-offset));
+    plot(ax,t,x);
+    plot(ax,t,y);
+    plot(ax,t,circshift(x,-offset));
     ylabel(ax,'GHI, CSGHI (normalized)');
     legend(ax,'GHI','CSGHI','offset GHI','box','off');
-    xlim(ax,[1,2*1440/dt]);
+    xlim(ax,t(1) + [0,2/dt-1]);
     plotarrows(ax,'southwest');
 
     hold(ax2,'on');

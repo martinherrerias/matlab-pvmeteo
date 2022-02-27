@@ -89,7 +89,7 @@ function MD = getsunpos(MD,check,rewrite)
     % Estimate the error due to refraction correction using Patm/Ta defaults:
     %  + up to ~14% error in barometric pressure
     %  + up to ~12% error due to temperature (-20°C instead of 10°C)
-    % ... and flag those points (sunel/sunaz) for which the error
+    % ... and flag those points (sunel/sunaz) for which the error is relevant
 
         MIN_DW = 1e-3; % ~1/4 second (SPA precision is ~3e-4)
 
@@ -102,7 +102,7 @@ function MD = getsunpos(MD,check,rewrite)
         r = (0.14.*noPa + 0.12.*noTa).*r; 
         toflag = (r > dw) & ~(SP.sunel < -1);
     else
-        toflag = false;
+        toflag = false(MD.Nt,1);
     end
 
     [b,MD.flags] = flagbit(MD.flags,'interp');
@@ -134,8 +134,8 @@ function MD = getsunpos(MD,check,rewrite)
                 MD.data.(f)(tochange,ic) = SP.(f)(tochange(incomplete));
             end
         end
-        if contains(f,{'sunel','sunaz','AMa'})
-            MD.flags.data.(f)(tochange,ic) = bitset(MD.flags.data.(f)(tochange,ic),b,toflag);
+        if contains(f,{'sunel','sunaz','AMa'}) && any(tochange)
+            MD.flags.data.(f)(tochange,ic) = bitset(MD.flags.data.(f)(tochange,ic),b,toflag(tochange));
         end
 
         if all(tochange)

@@ -6,6 +6,9 @@ function [Kd,Kn,mdl] = diffuse_fraction(varargin)
 %   'reindl1' - Reindl et al. (1990) 1-parameter model [3]. See PVL_REINDL_1.
 %   'reindl2' - Reindl et al. (1982) 2-parameter model [3]. See PVL_REINDL_2.
 %   'disc' - Maxwell (1987) DISC model [4]. See PVLMOD_DISC.
+%   'sot2' - Skartveit, Olseth & Tuft (1998) model [7], no variability
+%   'sot3'  - Skartveit, Olseth & Tuft (1998) model [7], average variability index
+%   'sot4' - Skartveit, Olseth & Tuft (1998) model [7], variability index
 %   'dirint' - Perez et al. (1992) DIRINT model [5]. See PVLMOD_DIRINT.
 %   'engerer2' - Engerer2
 %
@@ -14,14 +17,15 @@ function [Kd,Kn,mdl] = diffuse_fraction(varargin)
 %
 %   Kt - array of clearness indices (Kt = GHI / Extraterrestrial-Horizontal-Irradiance)
 %   SZA - scalar or size(Kt) array of true effective solar zenith angles [degrees], required for
-%       reindl2, DISC and DIRINT models.
+%       reindl2, DISC, SOT and DIRINT models.
 %   Patm - scalar or size(Kt) array of atmospheric pressure values [Pa], default 101325 Pa,
 %       only required for DISC and DIRINT models.
 %   TPW - scalar or size(Kt) array of precipitable water content [mm]. Only used by DIRINT model.
 %   timeseries - boolean is-time-series flag in PVLMOD_DIRINT
-%   Ktc - clear-sky clearness index (CSGHI/EHI) for engerer2 and sot3 models.
+%   Ktc - clear-sky clearness index (CSGHI/EHI) for engerer2 and SOT3/4 models.
 %   hourangle - solar hour angle (degrees) used to get AST in Engerer2model
 %   AM - Absolute air mass, not required if SZA and Patm are also provided.
+%   DT - Timestep (duration scalar), required for SOT4.
 %
 %   MODEL - character key for model selection (see above). The default is chosen based on the
 %       available arguments, with priority for the last models of the list above.
@@ -44,6 +48,9 @@ function [Kd,Kn,mdl] = diffuse_fraction(varargin)
 %       Direct Irradiance Conversion Models.  ASHRAE Transactions-Research Series, pp. 354-369
 %   [6] Code for Engerer2 was adapted from Yang & Boland, 2019. “Satellite-Augmented Diffuse Solar 
 %       Radiation Separation Models.” Journal of Renewable and Sustainable Energy 11 (2): 023705.
+%   [7] Skartveit, A., Olseth, J.A., Tuft, M.E., 1998. An hourly diffuse fraction model with 
+%       correction for variability and surface albedo. Solar Energy 63, 173–183. 
+%       https://doi.org/10.1016/S0038-092X(98)00067-X
 %
 % TODO: translate other models from Yang & Boland. 2019, accept 'ensemble' as model?
 %
@@ -86,8 +93,8 @@ function [Kd,Kn,mdl] = diffuse_fraction(varargin)
         validateattributes(args.timeseries,{'numeric','logical'},{'binary','scalar'});
     end  
     if isfield(args,'dt')
-        validateattributes(args.dt,{'numeric','duration'},{'real','scalar','positive','nonzero'});
         if isduration(args.dt), args.dt = minutes(args.dt); end
+        validateattributes(args.dt,'numeric',{'real','scalar','positive','nonzero'});
     end
     
     used = {}; % args used indirectly will be placed here, to skip 'ignored argument' warning
@@ -213,7 +220,7 @@ function d = skartveit_olseth_tuft(k,Z,Ktc,dt)
     if nargin < 3, Ktc = []; end
     if nargin < 4, dt = []; end
     if ~isempty(dt)
-       if mod(60,dt) ~= 0 || dt <= 60
+       if mod(60,dt) ~= 0 || dt <= 0
           warning('Cannot use timesteps that are not an integer divisor of 1 hour');
           dt = [];
        end
@@ -221,7 +228,7 @@ function d = skartveit_olseth_tuft(k,Z,Ktc,dt)
 
     if ~isempty(Ktc)
         [k,Z,Ktc] = compatiblesize(k,Z,Ktc);
-        r = k/Ktc;
+        r = k./Ktc;
         
         if ~isempty(dt) && (numel(Z) < 180/dt || ~isvector(Z))
             warning('Using average variability correction');
@@ -272,11 +279,11 @@ function d = skartveit_olseth_tuft(k,Z,Ktc,dt)
         D = zeros(size(k));  % for k < 0.14 or k > kx + 0.71 (12c)
         ib = (k > 0.14) & k <= kx;
         kL = (k(ib) - 0.14)./(kx(ib) - 0.14);  % (13b)
-        D(ib) = -3*kL.^2 * (1-kL) * s3(ib).^1.3;  % (12a)
+        D(ib) = -3*kL.^2 .* (1-kL) .* s3(ib).^1.3;  % (12a)
 
         ib = (k > kx) & k <= kx + 0.71;
         kR = (k(ib)-kx(ib))/0.71;  % (13c)
-        D(ib) = 3*kR * (1-kR).^2 * s3(ib).^0.6;  % (12b)
+        D(ib) = 3*kR .* (1-kR).^2 .* s3(ib).^0.6;  % (12b)
 
         d = d + D;
     end
@@ -289,10 +296,10 @@ function s3 = variability_index(r,dt)
     
     s3 = NaN(size(r));
    
-    if isempty(dt)
+    if nargin < 2 || isempty(dt)
     % use average variability index (eqns. 3a-3b)
         ib = (r <= 1.014);
-        s3(ib) = 0.021 + 0.387*r(ib) - 0.231*r(ib).^2 - 0.13./exp(((r(ib)-0.931)/0.134).^(2*0.834));
+        s3(ib) = 0.021 + 0.387*r(ib) - 0.231*r(ib).^2 - 0.13./exp((abs(r(ib)-0.931)/0.134).^(2*0.834));
         s3(~ib) = 0.12 + 0.65*(r(~ib)-1.04);
     else
         % There is no guideline in Skartveit et al. on what to do for timeseries of higher
@@ -308,10 +315,10 @@ function s3 = variability_index(r,dt)
         s3(ib) = hypot(R(ib,2) - R(ib,1),R(ib,2) - R(ib,3))/sqrt(2);
 
         % Use the absolute difference if only two samples are available
-        ib = all(isfinite(R(:,1:2),2));
-        s3(ib) = abs(R(:,1)-R(:,2));
-        ib = all(isfinite(R(:,2:3),2));
-        s3(ib) = abs(R(:,2)-R(:,3));
+        ib = all(isfinite(R(:,1:2)),2);
+        s3(ib) = abs(R(ib,1)-R(ib,2));
+        ib = all(isfinite(R(:,2:3)),2);
+        s3(ib) = abs(R(ib,2)-R(ib,3));
         
         ib = ~isfinite(s3) & isfinite(r);
         s3(ib) = variability_index(r(ib));

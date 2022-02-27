@@ -30,20 +30,32 @@ function varargout = plot(MD,type,varargin)
     
     switch type
         case 'heatmap', heatmaps(h,MD,varargin{:});
-        case 'shading', shadingplot(h,MD);
+        case 'shading', shadingplot(h,MD,varargin{:});
         % case 'series', plotseries(h,MD,varargin{:});
         case {'ktrd','knkd'}, kxkyscatter(h,MD,type,varargin{:});
     end
     
     if getSimOption('exportplots'), exportfigure(type,h); end
 end
-function shadingplot(ax,MD)
+function shadingplot(ax,MD,varargin)
     if isa(ax,'matlab.ui.Figure')
         clf(ax); ax = axes(ax);
     end
     
-    XBINS = -180:0.4:180;
-    YBINS = 0:0.4:90;
+    opt.var = 'kn';
+    opt.res = hours(MD.timestep)*15;
+    opt.fcn = @max;
+    opt = getpairedoptions(varargin,opt,'dealrest');
+    validateattributes(opt.res,'numeric',{'scalar','real','positive','<=',15});
+    validateattributes(opt.var,'char',{'nonempty'});
+    
+    assert(isfield(MD,opt.var),['Variable ' opt.var ' not found']);
+    
+    % XBINS = -180:0.4:180;
+    % YBINS = 0:0.4:90;
+    n = max(12,round(90/opt.res));
+    XBINS = linspace(-180,180,4*n+1);
+    YBINS = linspace(0,90,n+1);
     
     XTICKS = [-180:20:-140,-130:10:-50,-40:20:40,50:10:130,140:20:180];
     YTICKS = [0:10:20,30:20:90];
@@ -54,12 +66,12 @@ function shadingplot(ax,MD)
     az = solarposition.fixazimuth(MD.data.sunaz,'N2E','Eq0',MD.location.latitude);
     ix = discretize(az(~MD.dark),XBINS);
     iy = discretize(MD.data.sunel(~MD.dark),YBINS);
-    z = double(MD.data.kn);
-    Z = accumarray([ix,iy],z(~MD.dark),[numel(XBINS),numel(YBINS)]-1,@max,NaN);
+    z = double(MD.data.(opt.var));
+    Z = accumarray([ix,iy],z(~MD.dark),[numel(XBINS),numel(YBINS)]-1,opt.fcn,NaN);
 
     [xx,yy] = ndgrid(x,y); 
     gaps = isnan(Z);
-    G = scatteredInterpolant(xx(~gaps),yy(~gaps),Z(~gaps));
+    G = scatteredInterpolant(xx(~gaps),yy(~gaps),Z(~gaps),'linear','none');
     
     [~,d] = solarposition.hor2eq(MD.location.latitude,xx(gaps),yy(gaps),'Eq0');
     gaps(gaps) = abs(d) < 23.5;
@@ -74,6 +86,14 @@ function shadingplot(ax,MD)
     % ax.YMinorTick = 'on';
     ax.XMinorGrid = 'on';
     % ax.XMinorTick = 'on';
+    
+    if MD.location.latitude >=0
+        xlabel(ax,'Azimuth (0° = S, 90° = E)');
+    else
+        xlabel(ax,'Azimuth (0° = N, 90° = W)');
+    end
+    set(ax,'xdir','reverse')
+    ylabel('Elevation (deg)');
     
 end
 function kxkyscatter(ax,MD,type,varargin)
