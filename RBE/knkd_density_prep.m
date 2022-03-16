@@ -9,16 +9,27 @@ function [X0,X0_test,info] = knkd_density_prep(MD,dt)
     
     AVG_WINDOW = round(1/hours(MD.timestep));
     TEST_SHARE = 0.25;
+    
+    NONO_FLAGS = {'NA','num','abs_phys','rel_phys','model','BSRN_abs_lo','BSRN_abs_hi','interp','UNC_lo','UNC_hi'};
 
-    MD = meteoQC.flagged2nan(MD,'all');
+    if ~all(isfield(MD,{'kt','kn','kd'}))
+        MD = bestimate(MD);
+    end    
+    
+    if ~isfield(MD,'kc')
+        kc = MD.kt.*MD.ENI.*sind(MD.sunel)./MD.CSGHI;
+        MD = addsource(MD,'kc',kc,strjoin(getsourceof(MD,{'kt','CSGHI'}),'/'));
+        MD.flags.data.kt = bitor(MD.flags.data.kt,MD.flags.data.CSGHI);
+        MD.flags = checkfield(MD.flags,MD,@(x) x >= 0,'abs_phys',{'kc'},false);
+        MD.flags = checkfield(MD.flags,MD,@(x) x < 1.6,'rel_phys',{'kc'},false);
+    end    
+    MD = meteoQC.flagged2nan(MD,NONO_FLAGS);
+
     if nargin > 1 && dt > MD.timestep
         MD.interval = 'c';
         MD = resamplestructure(MD,seconds([MD.timestep,dt]),'-centered');
     end
-    if ~all(isfield(MD,{'kt','kn','kd'}))
-        MD = bestimate(MD);
-    end
-    
+
     navg = @(x) circshift(movmean(x,[AVG_WINDOW-1,0],'omitnan'),1);
     % nstd = @(x) circshift(movstd(x,[AVG_WINDOW-1,0],'omitnan'),1);
 
@@ -27,20 +38,15 @@ function [X0,X0_test,info] = knkd_density_prep(MD,dt)
     X0.kn = MD.kn;
     X0.kd = MD.kd;
 
-    kt = MD.kn + MD.kd;
-    if ~isfield(MD,'kc')
-        MD = addsource(MD,'kc',kt.*MD.ENI.*sind(MD.sunel)./MD.CSGHI,strjoin(getsourceof(MD,{'kt','CSGHI'}),'/'));
-        MD.kc(MD.kc < 0 | MD.kc > 1.6) = NaN;
-    end
-
     X0.cosz = sind(MD.sunel);
-    X0.Kt = navg(kt);
-    % X0.sKt = nstd(kt);
-    X0.kc = MD.kc;
-    % X0.sKc = nstd(X0.kc);
-    X0.Kc = navg(X0.kc);
     X0.lastkn = circshift(MD.kn,1);
     X0.lastkd = circshift(MD.data.kd,1);
+    X0.lastkt = circshift(MD.data.kd+MD.data.kn,1);
+    X0.lastkc = circshift(MD.kc,1);
+    X0.Kt = navg(MD.kt);
+    X0.Kc = navg(MD.kc);
+    % X0.sKt = nstd(MD.kt);
+    % X0.sKc = nstd(MD.kc);
 
     F = MD.flags;
     ok = cellfun(@(f) isfinite(X0.(f)),fieldnames(X0),'unif',0);
@@ -52,12 +58,15 @@ function [X0,X0_test,info] = knkd_density_prep(MD,dt)
     DEF = {'kn','k_n',getsourceof(MD,'kn');
            'kd','k_d',getsourceof(MD,'kd');
            'cosz','cos(\theta_z)',getsourceof(MD,'sunel');
+           'lastkn','k_{n,i-1}','circshift(kn,1)';
+           'lastkd','k_{d,i-1}','circshift(kd,1)';
+           'lastkt','k_{t,i-1}','circshift(kn+kd,1)';
+           'lastkc','k_{c,i-1}',getsourceof(MD,'kc');
            'Kt','\bar{k_t^H}',sprintf('movmean(kn+kd,[%d-2,-1])',AVG_WINDOW);
-           'kc','k_c',getsourceof(MD,'kc');
+           'Kc','\bar{k_c^H}',sprintf('movmean(kc,[%d-2,-1])',AVG_WINDOW)};
            % 'sKc','\sigma_c^H',sprintf('movstd(kc,[%d-2,-1])',AVG_WINDOW);
            % 'sKt','\sigma_t^H',sprintf('movstd(kc,[%d-2,-1])',AVG_WINDOW);
-           'lastkn','k_{n,i-1}','circshift(kn,1)';
-           'lastkd','k_{d,i-1}','circshift(kd,1)'};
+
     DEF(cellfun(@iscell,DEF)) = [DEF{cellfun(@iscell,DEF)}];
 
     VAR = fieldnames(X0);

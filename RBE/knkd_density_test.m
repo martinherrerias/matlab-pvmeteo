@@ -22,10 +22,7 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
     opt = parseoptions(varargin,{'-plot','-print'},opt,'dealrest',1);
 
     [N,M] = size(X0_test);
-
     VAR = X0_test.Properties.VariableNames;
-    X0_test = X0_test{:,:};
-    X0_test = mat2cell(X0_test,size(X0_test,1),ones(1,M));
     
     TPM.keys = TPM.Properties.RowNames;
     name = TPM.Properties.UserData.name;
@@ -56,6 +53,17 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
     [x0{1},x0{2}] = ndgrid(x0{1:2});
     x0 = [x0{1}(:),x0{2}(:)];
     
+    X0_test = X0_test{:,:};
+
+    room = maxarraysize('single')/(size(x0,1)*N)/12;
+    if room < 1
+        rng(123);
+        X0_test(rand(N,1) > room,:) = [];
+        N = size(X0_test,1);
+        warning('Test set too big to fit in memmory, using a %d random sample',N);
+    end   
+    X0_test = mat2cell(X0_test,size(X0_test,1),ones(1,M));
+    
     % Point distances for Energy Score
     Dxixj = pdist(x0,'euclidean');
     Dxixj = squareform(Dxixj);
@@ -75,6 +83,7 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
     [q0{1:3}] = deal(X0_test{1:2},single(1:N)');
 
     for j = test_idx(:)'
+    try
         if isempty(TPM.interpolant{j}) && contains(TPM.keys{j},'x')
             elements = strsplit(TPM.keys{j},'x');
             elements = regexprep(elements,'\((.*)\)','$1');
@@ -110,7 +119,7 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
         end
         Px = Px./sum(Px.*w,1:2);
         
-        if d == 2
+        if ismatrix(Px)
             % PIT = interpn(q{:},cumsum(cumsum(W,1),2),X0_test{1:2});
             px = interpn(q{:},Px,X0_test{1:2});
         else
@@ -122,6 +131,7 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
         W = reshape(W,numel(w),[])';
         Px = reshape(Px,numel(w),[])';
         BOT = 1-sum(W.*(Px <= px),2);
+
         TPM.discrepancy(j) = discrepancy(BOT);
         
 %         cdf = cumsum(sum(W,2),1);
@@ -135,7 +145,8 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
         es = sum(W.*Dxxi,2) - 0.5*sum(W.*(W*Dxixj),2);
         TPM.energy(j) = sqrt(mean(es.^2));
 
-        fprintf('%s: \tIGN = %0.1f\t ES = %0.2f\n',TPM.keys{j},TPM.ignorance(j),TPM.energy(j));
+        fprintf('%s: \tIGN = %0.1f\tES = %0.2f\tDBOT = %0.2f\n',...
+            TPM.keys{j},TPM.ignorance(j),TPM.energy(j),TPM.discrepancy(j));
 
 %         TPM.keys{j} = TESTS{j};
 %         TPM.interpolant{j} = G;
@@ -151,6 +162,7 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
             plot_metrics(ign,BOT,es,[],TPM.texlbl(j));
             printfig([name '_metrics_' TPM.keys{j}]);
         end
+    end
     end
 
     TPM = struct2table(TPM);

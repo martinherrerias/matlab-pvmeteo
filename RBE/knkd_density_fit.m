@@ -104,7 +104,11 @@ function TPM = knkd_density_fit(X0,info,TESTS,varargin)
     M = maxarraysize() - max(d.*Ng)/2;
     d = max(d);
     gam = ceil(0.5*(M - (10+5*d)*N)/(N+d^2));
-    gam = min(opt.gam(N),gam);
+    if isa(gam,'function_handle')
+        gam = min(opt.gam(N),gam);
+    else
+        gam = min(opt.gam,gam);
+    end
     fprintf('gam = %d\n',gam);
 
     name = sprintf('%s_%dgam',name,gam);
@@ -120,9 +124,11 @@ function TPM = knkd_density_fit(X0,info,TESTS,varargin)
 
     % weights for trapezoidal integration
     w = point_weights(GRIDS{1},GRIDS{2});
+    
+    ismixed = false(N_tests,1);
 
     for j = 1:N_tests
-% try
+    try
         if iscell(TESTS{j})
         % Regular case P(x|Y) = f(...)
         
@@ -135,6 +141,8 @@ function TPM = knkd_density_fit(X0,info,TESTS,varargin)
                     TPM.keys{j} = strjoin(cellstr(TESTS{j}),'+');
                     TPM.texlbl{j} = ['$P(x_i \mid Y_{i-1}) = f(' strjoin(LBL(idx(3:end)),',') ')$'];
                 end
+            else
+                keyboard();
             end
             fprintf('\nConditions: {%s}\n',TPM.keys{j});
 
@@ -177,26 +185,8 @@ function TPM = knkd_density_fit(X0,info,TESTS,varargin)
             end
         else
         % Just parse to see if TESTS{j} is a valid mix of existing estimates...
-            fprintf('\nMix: %s\n',TESTS{j});
-
-            elements = strsplit(TESTS{j},'x');
-            elements = regexprep(elements,'\((.*)\)','$1');
-
-            [~,ie] = ismember(elements,TPM.keys);
-            assert(all(ie > 0),'Combination TEST does not match precalculated elements');
-
-            condk = TPM.conditions(ie);
-            allcond = unique(cat(2,condk{:}),'stable');
-
+            ismixed(j) = true;
             TPM.keys{j} = TESTS{j};
-            % TPM.interpolant{j} = G;
-            TPM.conditions{j} = allcond;
-
-            lbl = regexp(TPM.texlbl(ie),'\$(.*) = f(\(.*\))\$','tokens');
-            while iscell(lbl{1}), lbl = cat(1,lbl{:}); end
-            lbl(:,2) = arrayfun(@(f,a) [f,a{:}],char('e'+(1:size(lbl,1)))',lbl(:,2),'unif',0);
-            TPM.texlbl{j} = ['$' lbl{1} ' = ' strjoin(lbl(:,2),' \\cdot ') '$'];
-
             continue;
         end
         
@@ -206,10 +196,10 @@ function TPM = knkd_density_fit(X0,info,TESTS,varargin)
             printfig([name '_' TPM.keys{j}]);
         end
 
-% catch ERR
-%     TPM.keys{j} = strjoin(cellstr(TESTS{j}),'+');
-%     warning('TEST: %s failed with error: %s',TPM.keys{j},ERR.message);
-% end
+    catch ERR
+        TPM.keys{j} = strjoin(cellstr(TESTS{j}),'+');
+        warning('TEST: %s failed with error: %s',TPM.keys{j},ERR.message);
+    end
         
     end
 
@@ -218,7 +208,11 @@ function TPM = knkd_density_fit(X0,info,TESTS,varargin)
     TPM.Properties.Description = info;
     TPM.Properties.UserData.name = name;
     TPM.Properties.UserData.labels = [VAR',LBL];
-
+    
+    if any(ismixed)
+        TPM(ismixed,:) = [];
+        TPM = mixed_models(TPM,TESTS(ismixed));
+    end
 end
 
 function iv = varindex(VAR,conditions)

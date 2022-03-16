@@ -29,9 +29,24 @@ function RES = RBE(MD,TPM,usedvar,varargin)
     opt.minP = 1e-12;
     % opt.method = 'bin';
     opt = parseoptions(varargin,{'-plot','-record','-benchmark'},opt,'restchk');
-
-    MD = meteoQC.flagged2nan(MD,'all');
     
+    NONO_FLAGS = {'NA','num','abs_phys','rel_phys','model','BSRN_abs_lo','BSRN_abs_hi','interp','UNC_lo','UNC_hi'};
+    if ~isfield(MD,'kc')
+        kc = MD.kt.*MD.ENI.*sind(MD.sunel)./MD.CSGHI;
+        MD = addsource(MD,'kc',kc,strjoin(getsourceof(MD,{'kt','CSGHI'}),'/'));
+        MD.flags.data.kt = bitor(MD.flags.data.kt,MD.flags.data.CSGHI);
+        MD.flags = checkfield(MD.flags,MD,@(x) x >= 0,'abs_phys',{'kc'},false);
+        MD.flags = checkfield(MD.flags,MD,@(x) x < 1.6,'rel_phys',{'kc'},false);
+    end    
+    MD = meteoQC.flagged2nan(MD,NONO_FLAGS);
+    
+    % PROVISIONAL: Kt, Kc should be state variables (see note below)
+    % These will be used as seeds (e.g.for morning hours) and replaced by MAP estimates on runtime
+    AVG_WINDOW = round(1/hours(MD.timestep));
+    navg = @(x) circshift(movmean(x,[AVG_WINDOW-1,0],'omitnan'),1);
+    MD = MD.addfield('Kt',navg(MD.kt));
+    MD = MD.addfield('Kc',navg(MD.kc));
+
     g = recover_grids(TPM); g = g(1:2);
     [kn_grid,kd_grid] = ndgrid(g{:});
     
@@ -65,9 +80,10 @@ function RES = RBE(MD,TPM,usedvar,varargin)
     [~,idx] = parselist(usedvar,{MD.sensors.ID});
     S = MD.sensors(idx);
     
-    if opt.benchmark
+    if opt.benchmark && ~all(typ.GTI)
     % TODO!- define benchmark for other sensor types
-        assert(all(typ.GTI),'Benchmark is still not defined for non-GTI sensors');
+        warning('Benchmark is still not defined for non-GTI sensors');
+        opt.benchmark = false;
     end
     
     % [surftilt,surfaz,IAM,sensor_list,sensor_labels] = getsensorinfo(MD.sensors,usedvar,typ);
@@ -240,7 +256,7 @@ function RES = RBE(MD,TPM,usedvar,varargin)
                 
                 % [RES.mapi(t,1:2),RES.mapi(t,3)] = nearbymax(R,RES.map(t,1:2),RES.map(t,3));
                 
-                % PROVISIONAL: get moving-average Kt from the MAP estimate
+                % PROVISIONAL: get moving-average Kt/Kc from the MAP estimate
                 % Kt should strictly be a third (probabilistic) state variable, so that
                 % the prior conditioned on Kt can be integrated on all P(Kt) > 0
                 if contains('Kt',EXT.Properties.VariableNames)
