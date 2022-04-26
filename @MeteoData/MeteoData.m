@@ -89,15 +89,15 @@ methods
     end
     
     function dt = get.timestep(MD)
-        if isregular(MD.data)
+        if isregular(MD.data) && MD.interval ~= 'i'
             dt = MD.data.Properties.TimeStep;
-            if ~isempty(MD.timestep) && isfinite(MD.timestep) && ~isequal(MD.timestep,dt)
-                warning('Inconsistent timestep: %s (property) vs %s (table)',...
-                    isoduration(dt),isoduration(MD.timestep));
-            end
-        else
-            dt = MD.timestep;
+            % if ~isempty(MD.timestep) && isfinite(MD.timestep) && ~isequal(MD.timestep,dt)
+            %     warning('Inconsistent timestep: %s (property) vs %s (table)',...
+            %         isoduration(dt),isoduration(MD.timestep));
+            % end
+            MD.timestep = dt;
         end
+        dt = MD.timestep;
     end
     function MD = set.timestep(MD,dt)
         if isempty(dt), dt = minutes(NaN); end
@@ -293,6 +293,7 @@ methods
         % validateattributes(val,{'numeric','logical'},{'2d','size',[MD.Nt,NaN]},'','val');
         if nargin < 4 || isempty(src), src = []; 
         else
+            if iscellstr(src) || isstring(src), src = char(src); end
             validateattributes(src,{'char'},{'nonempty'},'','src');
         end
         
@@ -500,11 +501,11 @@ methods
     
     MD = checksensors(MD,sensors,assumedefaults)
 
-    function MD = checktimestamps(MD,regular)
+    function MD = checktimestamps(MD,regular,dt)
     % obj.checktimestamps() - Timestep parsing & regularization (assume UTC, if missing)
 
         if nargin < 2, regular = true; end
-        dt = MD.timestep;
+        if nargin < 3, dt = []; end
 
         if isempty(MD.interval)
             try
@@ -551,7 +552,8 @@ methods
             if ~isempty(MD.uncertainty)
                 MD.uncertainty.data = filterstructure(MD.uncertainty.data,F);
             end
-            MD.t = parsetime(MD.t,'-gridded');
+            [MD.t,dt] = parsetime(MD.t,'-gridded');
+            if (MD.interval ~= 'i'), MD.timestep = dt; end
         
             if regular
                 MD.data{notthere,:} = NaN(size(MD.data{notthere,:}));
@@ -618,17 +620,18 @@ methods
         if ~isempty(MD.uncertainty)
             MD.uncertainty.data = filterstructure(MD.uncertainty.data,varargin{:});
         end
-        MD = checktimestamps(MD,false);
+        MD = checktimestamps(MD);
         
         if ~isequal(MD.timestep,original.timestep)
         % Update effective solar position
         % TODO: let solar position be irradiance weighted, i.e. try to keep closure
         
+            MD = refresh(MD);
             fld = {'sunel','sunaz','hourangle'};
             fld = fld(isfield(MD,fld));
             if ~isempty(fld)
                 MD = rmfield(MD,fld);
-                MD = getsunpos(MD);
+                MD = getsunpos(MD,false);
             end
         end
 

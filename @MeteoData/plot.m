@@ -24,7 +24,8 @@ function varargout = plot(MD,type,varargin)
         h = varargin{end};
         varargin(end) = [];
     else
-        h = GUIfigure(type,'Meteo-Data');
+        if strcmp(type,'shading'), args = {'3:1'}; else, args = {}; end
+        h = GUIfigure(type,'Meteo-Data',args{:});
     end
     if nargout > 0, varargout = {h}; end
     

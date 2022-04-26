@@ -21,7 +21,7 @@ function IAM = LI200_IAM(z)
     
     x = min(abs(z),90)*pi/180;
     hi = x > x0;
-    IAM = zeros(size(z));
+    IAM = zeros(size(z),'like',z);
     IAM(hi) = g(x(hi));
     IAM(~hi) = f(x(~hi));
 end

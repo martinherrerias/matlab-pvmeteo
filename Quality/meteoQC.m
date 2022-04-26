@@ -773,7 +773,11 @@ methods (Static = true)
             try
                 flag_bits = flagbit(MD.flags,flag_bits);
             catch
-                flag_bits = parselist(flag_bits,MD.flags.flags);
+                [flag_bits,idx] = parselist(flag_bits,MD.flags.flags,'-soft');
+                if any(idx == 0)
+                    warning('%s not found',shortliststr(flag_bits(idx == 0),'Flag','quotes',''''));
+                    flag_bits = flag_bits(idx > 0);
+                end
                 flag_bits = flagbit(MD.flags,flag_bits);
             end
         end

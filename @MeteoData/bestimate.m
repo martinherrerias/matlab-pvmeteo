@@ -12,9 +12,9 @@ function [MD,B,U] = bestimate(MD,varargin)
 %   + Consider expected kt-kd distribution, e.g. from probabilistic separation model
 %   + Account for uncertainty in closure equation for non-finite (downsampled) intervals!
 
-    opt.discardflags = {'^','BSRN_rare_hi','BSRN_rare_lo'};
+    opt.discardflags = {'^','BSRN_rare_hi','BSRN_rare_lo','CIE_out','IQR'};
+    opt.fillgaps = true;
     opt = getpairedoptions(varargin,opt,'restchk');
-    
     opt.discardflags = parselist(opt.discardflags,MD.flags.flags);
 
     MD = getsunpos(MD,0,0);
@@ -23,7 +23,7 @@ function [MD,B,U] = bestimate(MD,varargin)
     if isempty(MD.uncertainty), MD = getuncertainty(MD); end
         
     % if ~all(isfield(MD,{'kt','kd','kn','F1'})) || ~all(isfield(MD.uncertainty,{'kt','kd','kn'}))
-        MD = firstguess(MD,opt.discardflags);
+        MD = firstguess(MD,opt.discardflags,opt.fillgaps);
     % end
     
     if nargout > 1
@@ -45,7 +45,7 @@ function [x0,u0] = IVWmean(x,u,dim)
     u0 = sqrt(u0);
 end
 
-function MD = firstguess(MD,discardflags)
+function MD = firstguess(MD,discardflags,fillgaps)
 % Given a set of measurements GHI, DHI, BNI with uncertainties UNC.GHI, UNC.DHI, UNC.BNI; get a 
 % maximum-likelihood estimate of the 'true' G0, D0, B0. The estimates must satisfy the closure 
 % condition GHI = DHI + BNI·cosZ while maximizing the log-likelyhood:
@@ -130,30 +130,33 @@ function MD = firstguess(MD,discardflags)
     K = [kt,kd,kn];
     K(MD.dark,:) = NaN;
     K(MD.data.sunel < 0) = NaN;
-    
-    tofill = ~isfinite(K) & ~MD.dark & ~MD.missing;
-    [K,~,Uk] = MeteoData.fillgaps(K,MD.timestep,hours(1),'exclude',MD.dark | MD.missing);
-    K = max(K,0);
 
     U0 = NaN(numel(EHI),3);
     if isfield(U,'GHI'), U0 = U.GHI; end
     if isfield(U,'DHI'), U0 = U.DHI; end
     if isfield(U,'BNI'), U0 = U.BNI; end
     U0 = U0./[EHI,EHI,MD.data.ENI];
-    
-    Uk(~tofill) = min(U0(~tofill),Uk(~tofill));
+
+    if fillgaps
+        tofill = ~isfinite(K) & ~MD.dark & ~MD.missing;
+        [K,~,Uk] = MeteoData.fillgaps(K,MD.timestep,hours(1),'exclude',MD.dark | MD.missing);
+        K = max(K,0);
+        Uk(~tofill) = min(U0(~tofill),Uk(~tofill));
+        tofill(:,4) = any(tofill,2); % used for F1, below
+        [b,MD.flags] = flagbit(MD.flags,'interp');
+    else
+        Uk = U0;
+    end
     
     [U.kt,U.kd,U.kn] = deal(Uk(:,1),Uk(:,2),Uk(:,3));
     [S.kt,S.kd,S.kn] = deal(K(:,1),K(:,2),K(:,3));
 
     S.F1 = pvlmod_perezcoeffs(S.BNI,S.DHI,MD.data.ENI,MD.data.sunel);
     
-    [b,MD.flags] = flagbit(MD.flags,'interp');
-    tofill(:,4) = any(tofill,2);
     fld = {'kt','kd','kn','F1'};
     for j = 1:4
         MD = addfield(MD,fld{j},S.(fld{j}),['simpleguess.',fld{j}],true);
-        MD.flags.(fld{j}) = bitset(MD.flags.(fld{j}),b,tofill(:,j));
+        if fillgaps, MD.flags.(fld{j}) = bitset(MD.flags.(fld{j}),b,tofill(:,j)); end
     end
     
     if ~isempty(MD.uncertainty)
