@@ -8,7 +8,6 @@ function [grids,var] = recover_grids(TPM,var)
     for j = 1:size(TPM,1)
         if isempty(TPM.interpolant{j}), continue; end
         [ia,ib] = ismember(var,[{'kn','kd'},TPM.conditions{j}]);
-        assert(nnz(ia) == numel(TPM.conditions{j})+2,'Unexpected variable names');
 
         existing = ~cellfun(@isempty,grids);
         new = ia & ~existing;
@@ -20,5 +19,9 @@ function [grids,var] = recover_grids(TPM,var)
             assert(isequal(grids(old),TPM.interpolant{j}.GridVectors(ib(old))),...
                 'Inconsistent GRIDS');
         end
-    end 
+    end
+    missing = cellfun(@isempty,grids);
+    if any(missing)
+       error('Unable to retrieve %s',shortliststr(var(missing),'grid','colon',' for '));
+    end
 end

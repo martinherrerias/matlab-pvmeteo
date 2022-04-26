@@ -27,39 +27,29 @@ function RES = RBE(MD,TPM,usedvar,varargin)
     opt.ndays = Inf;
     opt.mainmdl = 1;
     opt.minP = 1e-12;
+    opt.resample = 1;
+    opt.supervised = all(isfield(MD,{'kn','kd'}));
     % opt.method = 'bin';
     opt = parseoptions(varargin,{'-plot','-record','-benchmark'},opt,'restchk');
+    if ~opt.supervised, opt.benchmark = false; end
     
-    NONO_FLAGS = {'NA','num','abs_phys','rel_phys','model','BSRN_abs_lo','BSRN_abs_hi','interp','UNC_lo','UNC_hi'};
-    if ~isfield(MD,'kc')
-        kc = MD.kt.*MD.ENI.*sind(MD.sunel)./MD.CSGHI;
-        MD = addsource(MD,'kc',kc,strjoin(getsourceof(MD,{'kt','CSGHI'}),'/'));
-        MD.flags.data.kt = bitor(MD.flags.data.kt,MD.flags.data.CSGHI);
-        MD.flags = checkfield(MD.flags,MD,@(x) x >= 0,'abs_phys',{'kc'},false);
-        MD.flags = checkfield(MD.flags,MD,@(x) x < 1.6,'rel_phys',{'kc'},false);
-    end    
+    NONO_FLAGS = {'NA','num','abs_phys','rel_phys','model','BSRN_abs_lo','BSRN_abs_hi','interp','UNC_lo','UNC_hi','shaded'};
+    
+    MD = getderived(MD,[TPM.conditions{:}]);
     MD = meteoQC.flagged2nan(MD,NONO_FLAGS);
     
-    % PROVISIONAL: Kt, Kc should be state variables (see note below)
-    % These will be used as seeds (e.g.for morning hours) and replaced by MAP estimates on runtime
-    AVG_WINDOW = round(1/hours(MD.timestep));
-    navg = @(x) circshift(movmean(x,[AVG_WINDOW-1,0],'omitnan'),1);
-    MD = MD.addfield('Kt',navg(MD.kt));
-    MD = MD.addfield('Kc',navg(MD.kc));
+    % Parse (composite) prior models, get all external dependencies from MD
+    [mainmdl,TPM,EXT,AUX] = modeldependencies(TPM,opt.mainmdl,MD);
 
-    g = recover_grids(TPM); g = g(1:2);
+    g = recover_grids(TPM,{'kn','kd'});
     [kn_grid,kd_grid] = ndgrid(g{:});
     
-    try
     % start with conditional distribution on cos(z) = 0
-        dawn = TPM{'cosz','interpolant'}{1}.Values(:,:,1);
-    catch
-    % start with uniform distribution
-        dawn = ones(size(kn_grid));
-    end
+    % dawn = GriddedPDF(g,TPM{'cosz','interpolant'}{1}.Values(:,:,1));
     
-    % Parse (composite) prior models, get all external dependencies from MD
-    [mainmdl,TPM,EXT] = modeldependencies(TPM,opt.mainmdl,MD);
+    % start with uniform distribution
+    dawn = GriddedPDF(g,1);
+    if opt.resample > 0, Rs = resample(dawn,opt.resample); else, Rs = dawn; end
 
     KNOWN = {'GTI','DHI','BNI','GHI','USW'};
     
@@ -79,6 +69,12 @@ function RES = RBE(MD,TPM,usedvar,varargin)
     
     [~,idx] = parselist(usedvar,{MD.sensors.ID});
     S = MD.sensors(idx);
+    
+    if opt.benchmark && any(typ.GHI)
+    % EXPERIMENTAL: treat GHI as GTI
+       typ.GTI(typ.GHI) = true;
+       typ.GHI(:) = false;
+    end
     
     if opt.benchmark && ~all(typ.GTI)
     % TODO!- define benchmark for other sensor types
@@ -109,38 +105,17 @@ function RES = RBE(MD,TPM,usedvar,varargin)
     
     rng(1234);
     picks = randperm(id(end),min(id(end),opt.ndays));
-    
-    % Point distances for Energy Score
-    x0 = [kn_grid(:),kd_grid(:)];
-    Dxixj = pdist(x0,'euclidean');
-    Dxixj = squareform(Dxixj);
-    w = point_weights(g{:});
-    
-    RES.PIT = NaN(MD.Nt,2);
-    RES.box = NaN(MD.Nt,1);
-    RES.ignorance = NaN(MD.Nt,1);
-    RES.energy = NaN(MD.Nt,1);
-    RES.rmse = NaN(MD.Nt,1);
-    RES.map = NaN(MD.Nt,3);
-    RES.w = w;
+        
+    RES.stats = cell(MD.Nt,1);
+    if opt.supervised
+        RES.PIT = NaN(MD.Nt,2);
+        RES.BOT = NaN(MD.Nt,1);
+        RES.ignorance = NaN(MD.Nt,1);
+        RES.energy = NaN(MD.Nt,1);
+        RES.rmse = NaN(MD.Nt,1);
+    end
     RES.g = g;
-    
-%     RES.mapi = NaN(MD.Nt,3);
-%     [g{:}] = ndgrid(g{:});
-%     G = griddedInterpolant(g{:},dawn,'makima');
-%     searchopt = optimset(optimset('fminsearch'),'TolX',1e-4,'Display','none');
-%     
-%     function [x,y] = nearbymax(V,x0,y0)
-%         G.Values = double(V);
-%         fn = @(x) -G(x(1),x(2));
-%         [x,y] = fminsearch(fn,double(x0),searchopt);
-%         y = -y;
-%         if y < y0
-%             x = x0; y = y0;
-%             keyboard();
-%         end
-%     end
-    
+
     if Ny > 1 && opt.benchmark
         eg = [{single(1:Ny)},g];
         [eg{1:3}] = ndgrid(eg{:});
@@ -156,16 +131,16 @@ function RES = RBE(MD,TPM,usedvar,varargin)
 
     if opt.plot
         lbl = {'Prior',mainmdl.texlbl{1};
-               'Likelyhood',['$ P(y_i \mid x_i),\,y_i = ' sensor_labels '$'];
+               'Likelyhood',['$ P(y_i \mid x_i),\,y_i = \{' strrep(sensor_labels,'+',', ') '\}$'];
                'Posterior','$ P(x_i \mid Y_i)$'};    
         ax = plotstep(lbl);
     end
-    
-    window = hours(1)/MD.timestep; % PROVISIONAL
-    
+        
     np = numel(picks);
     wb = optwaitbar(0,'RBE','UI',false);
   
+    R = copy(dawn);
+    P = copy(dawn);
     for k = 1:np
         d = picks(k);
         wb.update(k/np,sprintf('Day %d/%d\n',k,np),'-addtime');
@@ -177,30 +152,36 @@ function RES = RBE(MD,TPM,usedvar,varargin)
             open(video)
         end
         
-        R = dawn;
+        R.P = dawn.P; % Initialize Posterior (time -1)
+        
+        if isfield(AUX,'Kt_movmean')
+            AUX.Kt_movmean.reset('cpy',AUX.Kt_marginal.get(R.P)); 
+        end
+        
         for t = find(id == d)'
 
             if MD.sunel(t) < 0, continue; end
             
             % Prior
-            P = getprior(R,TPM,EXT(t,:));
-            P = P./sum(P.*w,1:2);
-            if all(isnan(P)), P(:) = 1; end
+            P.P = getprior(R,TPM,EXT(t,:),AUX);
+            if all(isnan(P.P),'all'), P.P = 1; end
 
-            lkly = ( P > opt.minP ); 
-            Q = single(lkly);
-            
             % Likelihood
+            lkly = ( P.P > opt.minP ); 
+            Q = single(lkly);
             [Q(lkly),E] = getlikelyhood(Y(t,:),S,typ,kd_grid(lkly),kn_grid(lkly),...
                                         MD.ENI(t),MD.sunel(t),MD.sunaz(t),MD.albedo(t),...
                                         surftilt,surfaz);
-            Q = Q./sum(Q.*w,1:2);
-            if all(isnan(Q)), Q(:) = 1; end
+            % Q = Q./sum(Q.*w,1:2);
+            if any(isnan(Q),'all'), Q(:) = 1; end
             
             % Posterior
-            R = P.*Q;
-            R = R./sum(R.*w,1:2);
+            R.P = P.P.*Q;
             
+            if isfield(AUX,'Kt_movmean')
+                AUX.Kt_movmean.push(AUX.Kt_marginal.get(R.P));
+            end
+
             valid = isfinite(Y(t,:));
             ny = nnz(valid);
             
@@ -244,54 +225,39 @@ function RES = RBE(MD,TPM,usedvar,varargin)
                     RES.rmse(t) = hypot(kd0 - MD.kd(t),kn0 - MD.kn(t));
                 end
 
-                W = R.*w;
-                
-                cdf = cumsum(sum(W,2),1);
-                RES.PIT(t,1) = interpn(kn_grid(:,1),cdf,MD.kn(t));
-                cdf = cumsum(W,2)./sum(W,2);
-                RES.PIT(t,2) = interpn(kn_grid,kd_grid,cdf,MD.kn(t),MD.kd(t));
-                
-                [map,idx] = max(R,[],1:2,'linear');
-                RES.map(t,:) = [kn_grid(idx),kd_grid(idx),map];
-                
-                % [RES.mapi(t,1:2),RES.mapi(t,3)] = nearbymax(R,RES.map(t,1:2),RES.map(t,3));
-                
-                % PROVISIONAL: get moving-average Kt/Kc from the MAP estimate
-                % Kt should strictly be a third (probabilistic) state variable, so that
-                % the prior conditioned on Kt can be integrated on all P(Kt) > 0
-                if contains('Kt',EXT.Properties.VariableNames)
-                    MD.kt(t) = kn_grid(idx)+kd_grid(idx);
-                    if t >= window && t < MD.Nt
-                        EXT.Kt(t+1) = mean(MD.kt(t-window+1:t),'omitnan');
-                    end
+                if opt.resample > 0
+                    % Rs.P = max(0,interpn(R.grids{:},R.P,Rs.ndgrids{:},'makima'));
+                    rs = interpn(R.grids{:},R.P,Rs.ndgrids{:});
+                    Rs.P = rs;
+                else
+                    Rs = R; 
                 end
                 
-                px = interpn(kn_grid,kd_grid,R,MD.kn(t),MD.kd(t));
-                RES.ignorance(t) = -log2(max(opt.minP,px));
-                RES.box(t) = 1-sum(W(R <= px),1:2);
-                
-                % TODO: Should the statistics be based on a discrete distribution, i.e. W instead of R?
-
-                W = reshape(W,numel(w),[])';
-                Dxxi = single(hypot(MD.kn(t)-x0(:,1),MD.kd(t) - x0(:,2)));
-                RES.energy(t) = W*Dxxi - 0.5*sum(W.*(W*Dxixj),2);
+                RES.stats{t} = Rs.stats();
+                if opt.supervised
+                    RES.PIT(t,1) = Rs.PIT(MD.kn(t),1);
+                    RES.PIT(t,2) = Rs.PIT(MD.kd(t),2);
+                    [RES.BOT(t),px] = Rs.BOT(MD.kn(t),MD.kd(t));
+                    RES.ignorance(t) = -log2(max(opt.minP,px));
+                    RES.energy(t) = Rs.energyscore(MD.kn(t),MD.kd(t));
+                end
             end
 
             if opt.plot
-                plotstep(ax,kn_grid,kd_grid,P,Q,R,MD.kn(t),MD.kd(t),kn0,kd0,KN,KD,MD.sunel(t));
+                plotstep(ax,P,Q,Rs,MD.kn(t),MD.kd(t),kn0,kd0,KN,KD,MD.sunel(t));
                 drawnow()
-                if opt.record, writeVideo(video,getframe(gcf)); end
+                    if opt.record, writeVideo(video,getframe(gcf)); end
             end
         end
         if opt.record, close(video); end
     end
 end
     
-function ax = plotstep(ax,x,y,P,Q,R,x0,y0,xe,ye,Xt,Yt,sunel)
+function ax = plotstep(ax,P,Q,R,x0,y0,xe,ye,Xt,Yt,sunel)
 
     persistent H
     try cellfun(@delete,H); end %#ok<TRYNC>
-    
+        
     if nargin < 2
     % Setup
         
@@ -304,78 +270,98 @@ function ax = plotstep(ax,x,y,P,Q,R,x0,y0,xe,ye,Xt,Yt,sunel)
         ax = arrayfun(@(j) subplot(1,3,j),1:3);
         for j = 1:3
             knkd_density_plot({[0,1],[0,1]},ones(2,2),'cdf','ax',ax(j));
-            title(ax(j),[lbl{j,1},newline(),lbl{j,2}],'interpreter','latex','fontsize',12);
             hold(ax(j),'all');
+            title(ax(j),[lbl{j,1},newline(),lbl{j,2}],'interpreter','latex','fontsize',12);
+            ax(j).Position = ax(j).Position*[1 0 0 0;0 1 0 0;-0.1 0 1.2 0; 0 -0.1 0 1.2];
+            cb = matlab.graphics.illustration.colorbar.findColorBars(ax(j));
+            cb.Position = cb.Position*diag([1 1 0.5 1]);
         end
         return;
     end  
-
-    cb = get(ax(1).Parent,'children');
-    cb = cb(contains(arrayfun(@class,cb,'unif',0),'ColorBar'));
     
-    w = point_weights(x(:,1),y(1,:));
-
-    H{1} = cdfcontour(ax(1),P,cb(1));
+    H{1} = cdfcontour(ax(1),P,'DisplayName','AKDE');
     % [~,H{1}] = contour(ax(1),x,y,log10(P),LVL);
     
     if ~isempty(Xt)
         kt = 0:0.01:1.6;
         [kd,kn] = diffuse_fraction(kt,90-sunel,'sot2');
         kd = kd.*kt;
-        H{2} = plot(ax(1),kn,kd,'m-');
-        legend(ax(1),[H{1:2}],'AKDE','SOT2 sep. model','edgecolor','w');
+        H{end+1} = plot(ax(1),kn,kd,'m--','DisplayName','SOT2 sep. model');
+        % legend(ax(1),[H{1:2}],'AKDE','SOT2 sep. model','edgecolor','w');
+        legend(ax(1),'edgecolor','w');
     end
     
     % [~,H{3}] = contour(ax(2),x,y,log10(Q),LVL);
-    H{3} = cdfcontour(ax(2),Q,cb(2));
+    H{end+1} = cdfcontour(ax(2),GriddedPDF(P.grids,Q),'DisplayName','Perez (ensemble)');
     
     if ~isempty(Xt)
-        H{4} = plot(ax(2),Xt,Yt,'m-');
-        legend(ax(2),cat(1,H{3:4}),'Perez (ensemble)','Inv. Perez (det.)','edgecolor','w');
+        H{end+1} = plot(ax(2),Xt,Yt,'m--','DisplayName','Inv. Perez (det.)');
+        if size(Xt,2) == 1
+            H{end+1} = plot(ax(2),kn,kd,'--','color',[0.9 0.9 0.9],'HandleVisibility','off');
+        else
+            set(H{end}(2:end),'HandleVisibility','off')
+        end
+        % legend(ax(2),cat(1,H{3:4}),'Perez (ensemble)','Inv. Perez (det.)','edgecolor','w');
+        legend(ax(2),'edgecolor','w');
     end
     
     % [~,H{5}] = contour(ax(3),x,y,log10(R),LVL);
-    H{5} = cdfcontour(ax(3),R,cb(3));
-    H{6} = plot(ax(3),x0,y0,'ro','markersize',10);
+    H{end+1} = cdfcontour(ax(3),R,'DisplayName','RBE Posterior');
+    H{end+1} = plot(ax(3),x0,y0,'ro','markersize',10,'DisplayName','True (measured)');
     
-    [~,idx] = max(R,[],1:2,'linear');
-    H{7} = plot(ax(3),x(idx),y(idx),'b+','markersize',10);
+    m = R.mode;
+    H{end+1} = plot(ax(3),m(1),m(2),'b+','markersize',10,'DisplayName','MAP');
     
-    if ~isempty(xe)
-        H{8} = plot(ax(3),xe,ye,'mx','markersize',10);
-        legend(ax(3),cat(1,H{5:8}),'RBE Posterior','True (measured)','MAP','Deterministic','edgecolor','w');
-    else
-        legend(ax(3),cat(1,H{5:7}),'RBE Posterior','True (measured)','MAP','edgecolor','w');
+    if ~isempty(Xt)
+        H{end+1} = plot(ax(3),Xt,Yt,'--','color',[0.9 0.9 0.9],'HandleVisibility','off');
+        if size(Xt,2) == 1
+            H{end+1} = plot(ax(3),kn,kd,'--','color',[0.9 0.9 0.9],'HandleVisibility','off');
+        end
     end
     
-    function H = cdfcontour(ax,P,cb)
+    if ~isempty(xe)
+        H{end+1} = plot(ax(3),xe,ye,'mx','markersize',10,'DisplayName','Deterministic');
+        % legend(ax(3),cat(1,H{5:8}),'RBE Posterior','True (measured)','MAP','Deterministic','edgecolor','w');
+    else
+        % legend(ax(3),cat(1,H{5:7}),'RBE Posterior','True (measured)','MAP','edgecolor','w');
+    end
+    legend(ax(3),'edgecolor','w');
+    
+    function H = cdfcontour(ax,P,varargin)
         
         PRCTILES = [50 75 95 99];
+        % cb = colorbar('peer',ax);
+        cbar = matlab.graphics.illustration.colorbar.findColorBars(ax);
 
-        lvl = prctilew(P,(100-PRCTILES),P.*w);
+        lvl = prctilew(P.P,(100-PRCTILES),P.wP);
         lvl = unique(-log10(lvl(lvl > 0)),'sorted');
         if numel(lvl) < 2
             caxis(ax,[0,1]);
-            cb.Ticks = [0,1];
-            H = plot(0,0);
+            cbar.Ticks = [0,1];
+            H = plot(0,0,'HandleVisibility','off');
             return
         end
 
         ncolors = max(10,2*numel(lvl)+1);
         colormap(ax,parula(ncolors));
         
-        [~,H] = contour(ax(1),x,y,-log10(P),lvl);
+        [~,H] = contour(ax(1),P.ndgrids{:},-log10(P.P),lvl,varargin{:});
 
         caxis(ax,[lvl(1),lvl(end)]+[-0.5,0.5]*(lvl(end)-lvl(1))/ncolors);
-        cb.Ticks = lvl;
-        cb.TickLabels = arrayfun(@(x) sprintf('%g%%',x),PRCTILES,'unif',0);
+        cbar.Ticks = lvl;
+        cbar.TickLabels = arrayfun(@(x) sprintf('%g%%',x),PRCTILES,'unif',0);
     end
 end
 
-function [main,TPM,EXT] = modeldependencies(TPM,main,MD)
-% [M,B,E] = modeldependencies(TPM,'main',MD) - find TPM row M matching model 'main', and if it is
-%   a composite model, return the underlying models B (otherwise B = M). If any B is conditioned
+function [main,TPM,EXT,AUX] = modeldependencies(TPM,main,MD)
+% [M,B,E,A] = modeldependencies(TPM,'main',MD) - find TPM row M matching model 'main', and if it 
+%   is a composite model, return the underlying models B (otherwise B = M). If any B is conditioned
 %   on external variables, return these as a table E, with field names matching the keys of B.
+
+    % PROVISIONAL: assume zero correlation among kt distributions when estimating Kt
+    % the alternative (full correlation) might need using a different PDFmovmean for sKt
+    CORRELATED = false;
+    AVG_WINDOW = round(1/hours(MD.timestep));
 
     if ~isnumeric(main)
         [~,main] = is_synonym(main,TPM.Properties.RowNames);
@@ -393,13 +379,27 @@ function [main,TPM,EXT] = modeldependencies(TPM,main,MD)
         % [~,ie] = ismember(main,mdl.Properties.RowNames);
     end
     main = TPM(main,:);
-    TPM = TPM(ie,:);
     
+    % Experimental: return objects to artificially extend the state space to kt, Kt
+    AUX = struct();
+    if any(ismember({'lastkt','Kt'},[TPM.conditions{ie}]))
+        AUX.kt_marginal = Marginal(TPM{'lastkt','interpolant'}{1}.GridVectors,@plus);
+    end
+    if any(ismember({'Kt','sKt'},[TPM.conditions{ie}]))
+        AUX.Kt_marginal = Marginal(TPM{'Kt','interpolant'}{1}.GridVectors,@plus);
+        AUX.Kt_movmean = PDFmovmean(AUX.Kt_marginal.grids{3},AVG_WINDOW,CORRELATED);
+    end
+    if ismember('sKt',[TPM.conditions{ie}])
+        AUX.sKt = GriddedPDF(AUX.Kt_marginal.grids{3},0);
+    end
+    
+    TPM = TPM(ie,:);
+
     available = fieldnames(MD);
     
     EXT = cell(1,numel(ie));
     for k = 1:size(TPM,1)
-        req = setdiff(TPM.conditions{k},{'lastkd','lastkn'});
+        req = setdiff(TPM.conditions{k},{'lastkd','lastkn','lastkt','Kt','sKt'});
         if isempty(req), EXT{k} = zeros(MD.Nt,0,'single'); continue; end
         
         % Solve dependence from external variables
@@ -413,12 +413,23 @@ function [main,TPM,EXT] = modeldependencies(TPM,main,MD)
         EXT{k} = MD.data{:,iv};
     end
     EXT = table(EXT{:},'VariableNames',TPM.Properties.RowNames');
-    
 end
 
-function Px = getprior(last_Px,mdl,EXT)
+function Px = getprior(last_Px,mdl,EXT,AUX)
 % Integrate transition density estimate MDL weighted by last estimate LAST_PX, slicing accross
 % external conditioning variables EXT.
+
+    oths = struct();
+    if isfield(AUX,'Kt_movmean')
+        oths.Kt = AUX.Kt_movmean.average;
+    end
+    if isfield(AUX,'kt_marginal')
+        oths.lastkt = AUX.kt_marginal.get(last_Px.P); 
+    end
+    if isfield(AUX,'sKt')
+        AUX.sKt.P = oths.Kt;
+        oths.sKt = sqrt(AUX.sKt.cov);
+    end
 
     Px = 1;
     for k = 1:size(mdl,1)
@@ -430,25 +441,49 @@ function Px = getprior(last_Px,mdl,EXT)
         % Solve dependence from last state, distributed with P(kn,kd) = P0
         [ic,iv] = ismember({'lastkn','lastkd'},mdl.conditions{k});
         if any(ic)
+            iv = iv + 2; % position of lastkn, lastkd in interpolant dimensions
+            
             % make kn,kd the last dimensions...
             d = numel(mdl.conditions{k})+2;
-            if ~all(ic), iv(~ic) = d-1; d = d+1; end
+            if ~all(ic), iv(~ic) = d+1; d = d+1; end
             dimorder = 1:d;
-            dimorder(iv+2) = 0;
+            dimorder(iv) = 0;
             dimorder(1:d-2) = dimorder(dimorder ~= 0);
-            dimorder(d-1:d) = iv+2;
+            dimorder(d-1:d) = iv;
             G = permute(mdl.interpolant{k}.Values,dimorder);
             % ... and reduce, weighting by last_Px
-            G = sum(G.*shiftdim(last_Px,2-d),d-1:d);
+            G = sum(G.*shiftdim(last_Px.P,2-d),d-1:d);
             mdl.interpolant{k}.Values = G;
-            mdl.interpolant{k}.GridVectors(iv(ic)+2) = [];
-            mdl.conditions{k}(iv(ic)) = [];
+            mdl.interpolant{k}.GridVectors(iv(ic)) = [];
+            mdl.conditions{k}(iv(ic)-2) = [];
+        end
+        
+        % Solve dependency with state-derived quantities, e.g. lastkt, Kt
+        fld = fieldnames(oths);
+        for j = 1:numel(fld)
+            [ic,iv] = ismember(fld{j},[mdl.conditions{k}]);
+            if ic
+                iv = iv + 2;
+
+                % make fld{j} the last dimension...
+                d = numel(mdl.conditions{k})+2;
+                dimorder = [1:(iv-1),(iv+1):d,iv];
+                G = permute(mdl.interpolant{k}.Values,dimorder);
+
+                % ... and reduce, weighting by the distribution last.(fld{j})
+                G = sum(G.*shiftdim(oths.(fld{j}),1-d),d);
+                mdl.interpolant{k}.Values = G;
+                mdl.interpolant{k}.GridVectors(iv) = [];
+                mdl.conditions{k}(iv-2) = [];
+            end
+            if isempty(mdl.conditions{k}), break; end
         end
         if isempty(mdl.conditions{k})
             Px = Px.*mdl.interpolant{k}.Values;
             continue;
         end
         
+        % ... and finally with external variables, e.g. cosz, Ksat, ...
         missing = [false,false,~isfinite(EXT{:,k})];
         if any(missing)
             dimorder = 1:numel(mdl.conditions{k})+2;
@@ -477,8 +512,8 @@ end
 
 function [Q,E] = getlikelyhood(Y,S,typ,kd,kn,ENI,sunel,sunaz,albedo,surftilt,surfaz)
     
-    G.BNI = ENI.*kn;
-    G.DHI = ENI.*sind(sunel).*kd;
+    G.BNI = ENI.*max(kn,0);
+    G.DHI = ENI.*sind(sunel).*max(kd,0);
     G.GHI = G.DHI + G.BNI*sind(sunel);
 
     valid = isfinite(Y); % & isfinite(U);
@@ -497,6 +532,7 @@ function [Q,E] = getlikelyhood(Y,S,typ,kd,kn,ENI,sunel,sunaz,albedo,surftilt,sur
 
         A = (CS - ISO);
         B = HB;
+        w = sind(surftilt(ok)).^2;
 
         ISO = (1-F1).*G.DHI.*ISO;
         CS = F1.*G.DHI.*CS;
@@ -513,13 +549,14 @@ function [Q,E] = getlikelyhood(Y,S,typ,kd,kn,ENI,sunel,sunaz,albedo,surftilt,sur
         sF2 = sF2.*G.DHI;
             
         if nnz(ok) == 1
-            Se = sqrt(Se.^2+u.^2+(sF1.*A).^2+(sF2.*B).^2 + 2*rF1F2.*A.*B.*sF1.*sF2);
+            Se = sqrt(w*Se.^2+u.^2+(sF1.*A).^2+(sF2.*B).^2 + 2*rF1F2.*A.*B.*sF1.*sF2);
             Q = normpdf(E(:,useful),0,Se);
         else
             sigma = (A.*A').*shiftdim(sF1.^2,-2) + ...
                     (B.*B').*shiftdim(sF2.^2,-2) + ...
                     (A.*B'+A'.*B).*shiftdim(sF2.*sF1.*rF1F2,-2) + ...
-                    eye(nnz(ok)).*permute(Se.^2+u.^2,[3,2,1]);
+                    diag(w).*permute(Se.^2,[3,2,1]) + ...
+                    eye(nnz(ok)).*permute(u.^2,[3,2,1]);
             Q = mvnpdf(E(:,useful),0,sigma);
         end
     else
@@ -552,3 +589,21 @@ function [Q,E] = getlikelyhood(Y,S,typ,kd,kn,ENI,sunel,sunaz,albedo,surftilt,sur
     Q(isnan(Q)) = 0;
 end
 
+function MD = getderived(MD,conditions)
+% MD = GETDERIVED(MD,CONDITIONS) calculate quantities that are not explicitly in MD, but
+%   are listed in CONDITIONS. 
+
+    if ismember('kc',conditions) && ~isfield(MD,'kc')
+        kc = MD.kt.*MD.ENI.*sind(MD.sunel)./MD.CSGHI;
+        MD = addsource(MD,'kc',kc,strjoin(getsourceof(MD,{'kt','CSGHI'}),'/'));
+        MD.flags.data.kc = bitor(MD.flags.data.kt,MD.flags.data.CSGHI);
+        MD.flags = checkfield(MD.flags,MD,@(x) x >= 0,'abs_phys',{'kc'},false);
+        MD.flags = checkfield(MD.flags,MD,@(x) x < 1.6,'rel_phys',{'kc'},false);
+    end
+    
+    if ismember('cosz',conditions) && ~isfield(MD,'cosz')
+        MD = addsource(MD,'cosz',sind(MD.sunel),char(getsourceof(MD,'sunel')));
+        MD.flags.data.cosz = MD.flags.data.sunel;
+        MD.flags = checkfield(MD.flags,MD,@(x) x >= 0,'abs_phys',{'cosz'},false);
+    end
+end

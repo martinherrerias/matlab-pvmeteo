@@ -82,7 +82,7 @@ function [h,cb,c] = knkd_density_plot(g,P,varargin)
         if ~isempty(opt.sepmdl), plotseparationmodel(ax,opt.sepmdl{:}); end
 
         if ~uniform
-            [c,h] = contour(ax,g{1},g{2},-log10(P),LVL);
+            [c,h] = contour(ax,g{1},g{2},-log10(P),LVL,'DisplayName',opt.scale);
         end
 
         % h = colorbar(ax);
@@ -141,7 +141,7 @@ function plotktgrid(kt,ax)
     x(3,:) = NaN;
     y = [flipud(x(1:2,:));x(3,:)];
     
-    plot(ax,x(:),y(:),'color',[1,1,1]*0.9);
+    plot(ax,x(:),y(:),'color',[1,1,1]*0.9,'HandleVisibility','off');
 end
 
 function plotseparationmodel(ax,varargin)
@@ -154,7 +154,7 @@ function plotseparationmodel(ax,varargin)
     % [kd,kn] = cellfun(@(m) diffuse_fraction(kt,m),mdl,'unif',0);
     % kd = kt'.*cat(1,kd{:})'; kd(end+1,:) = NaN;
     % kn = cat(1,kn{:})'; kn(end+1,:) = NaN;
-    [kd,kn] = diffuse_fraction(kt,varargin{:});
+    [kd,kn,mdl] = diffuse_fraction(kt,varargin{:});
     kd = kd.*kt;
     if size(kd,1) > 1
         kd(:,end+1) = NaN; kd = kd'; 
@@ -162,5 +162,5 @@ function plotseparationmodel(ax,varargin)
         
     end
     
-    plot(ax,kn(:),kd(:),'color',[1 0.7 1]);
+    plot(ax,kn(:),kd(:),'--','color',[0.9 0.2 0.9],'DisplayName',[mdl,' model']);
 end

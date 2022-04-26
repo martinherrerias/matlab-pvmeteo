@@ -1,52 +1,51 @@
-function plot_metrics(ign,BOT,es,bins,lbl,BOTlbl)
-
-    if nargin < 4 || isempty(bins), bins = 20; end
-    if nargin < 5 || isempty(lbl), lbl = ''; end
-    if nargin < 6, BOTlbl = 'Box density Ordinate Transform'; end
-
+function plot_metrics(ign,BOT,es,varargin)
+    
+    opt.bins = 20;
+    opt.lbl = '';
+    opt.BOTlbl = 'Box Ordinate Transform';
+    opt.norm = 'pdf';
+    opt.ylim = {[],[],[]}; % IGN, BOT, ES
+    opt.xlim = {[],[0 1],[]};
+    opt = getpairedoptions(varargin,opt,'dealrest',3);
+    
     GUIfigure('knkd_density_test_metrics','','3:1');  % clf(); 
-
-    subplot(1,3,1); hold on; 
-    if isinf(bins)
-        pd = fitdist(ign(isfinite(ign)),'kernel','Kernel','normal');
-        ii = linspace(-10,10,500);
-        plot(ii,pdf(pd,ii));
-    else
-        histogram(ign,bins,'normalization','pdf','DisplayStyle','stairs');
+    
+    BOT = BOT(isfinite(BOT));
+    es = es(isfinite(es));
+    ign = ign(isfinite(ign));
+    
+    X = {ign,BOT,es};
+    ax = arrayfun(@(j) subplot(1,3,j),1:3);
+    for j = 1:3
+        hold(ax(j),'on');
+        if isinf(opt.bins)
+            pd = fitdist(X{j},'kernel','Kernel','box');
+            ii = linspace(pd.icdf(0.001),pd.icdf(0.999),200);
+            plot(ax(j),ii,pdf(pd,ii));
+        else
+            if isscalar(opt.bins) && ~isempty(opt.xlim{j})
+               bins = linspace(opt.xlim{j}(1),opt.xlim{j}(2),opt.bins+1);
+            else
+               bins = opt.bins; 
+            end
+            histogram(ax(j),X{j},bins,'normalization',opt.norm,'DisplayStyle','stairs');
+        end
+        switch j
+            case 1, xlabel(ax(j),'Ignorance Score');
+            case 2, xlabel(ax(j),opt.BOTlbl); xlim([0,1]);
+            case 3, xlabel(ax(j),'Energy Score');
+        end
+        ylabel(ax(j),opt.norm);
+        axis(ax(j),'square'); grid(ax(j),'on'); 
+        if ~isempty(opt.ylim{j}), ylim(ax(j),opt.ylim{j}); end
+        if ~isempty(opt.xlim{j}), xlim(ax(j),opt.xlim{j}); end
     end
-    xlabel('Ignorance Score');
-    ylabel('pdf'); 
-    grid on; axis square; % xticks(-10:5:10); xlim([-10,10]);
 
-    subplot(1,3,2); hold on;
-    if isinf(bins)
-        pd = fitdist(BOT(isfinite(BOT)),'kernel','Kernel','normal');
-        ii = linspace(0,1,200);
-        plot(ii,pdf(pd,ii));
-    else
-        histogram(BOT,bins,'normalization','pdf','DisplayStyle','stairs');
-    end
-    xlabel(BOTlbl);
-    ylabel('pdf');
-    grid on; axis square; xticks(0:0.25:1); xlim([0,1]);
-
-    subplot(1,3,3); hold on;
-    if isinf(bins)
-        pd = fitdist(es(isfinite(es)),'kernel','Kernel','normal');
-        ii = linspace(0,0.6,200);
-        plot(ii,pdf(pd,ii));
-    else
-        histogram(es,bins,'normalization','pdf','DisplayStyle','stairs');
-    end
-    xlabel('Energy Score');
-    ylabel('pdf');
-    grid on; axis square; % xticks(0:0.15:0.6); xlim([0,0.6]);
-
-    if ~isempty(lbl)
-        lbl = regexprep(lbl,'\$(.*= )(.*)\$','\$$2\$');
+    if ~isempty(opt.lbl)
+        lbl = regexprep(opt.lbl,'\$(P\(.*\) =)(.*)\$','\$$2\$');
         
         lgd = get(gca,'legend');
         if isempty(lgd), lgd = lbl; else, lgd = [lgd.String(1:end-1),lbl]; end
-        legend(lgd,'interpreter','latex','fontsize',12,'box','off');
+        legend(lgd,'interpreter','latex','box','off');
     end
 end

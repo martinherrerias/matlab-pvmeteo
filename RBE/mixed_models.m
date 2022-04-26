@@ -1,7 +1,7 @@
 function TPM = mixed_models(TPM,X)
 % TPM = MIXED_MODELS(TPM,K) - Generate model combinations from the output TPM of KNKD_DENSITY_FIT.
 %   If TPM contains N 'atomic' models (i.e. rows with non-empty TPM.interpolant), MIXED_MODELS 
-%   will make sure to include all relevant* combinations out of the NCHOOSEK(N,K) possibilities. 
+%   will make sure to include all relevant* combinations out of the NCHOOSEK(N,1..K) possibilities. 
 %   E.g. if TPM contains models 'a','b','c', MIXED_MODELS(TPM,2) will ensure that '(a)x(b)',
 %   '(b)x(c)', and '(a)x(c)' are included in TPM.
 %   (*) Not added are combinations with the 'uniform' distribution, or those that contain two or 

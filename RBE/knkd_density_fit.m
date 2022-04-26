@@ -10,6 +10,7 @@ function TPM = knkd_density_fit(X0,info,TESTS,varargin)
 %           These will be 2+N-dimensional interpolants, for N conditioning variables.
 %       TESTS{j} = '(a)x(b)x..' - combine pre-calculated models 'a','b',.. These are only
 %           'virtual' models, and do not require the creation of a bulky 2+N-D interpolant.
+%           See MIXED_MODELS.
 %
 % Result will be a table TPM with:
 %
@@ -24,7 +25,7 @@ function TPM = knkd_density_fit(X0,info,TESTS,varargin)
 % Recognized ..,'name',value,.. pairs with their default value:
 %
 %     'gridtype','a' - 'r' regular/'a' adaptive (quantile-based) evaluation grid
-%     'gridsteps',30 - use up to N points for each dimension
+%     'gridsteps',40 - use up to N points for each dimension
 %     'uniformshare',0.5 - for adaptive grids, control the mix of quantile-based- and uniform.
 %     'minstep',1e-4 - minimum allowed grid gap
 %     'gridrange',[0,Inf] - force grids to start/end (non finite values ignored).
@@ -47,19 +48,19 @@ function TPM = knkd_density_fit(X0,info,TESTS,varargin)
     assert(isequal(VAR(1:2),{'kn','kd'}),'Expecting kn, kd as first columns');
 
     opt.gridtype = 'a'; % 'r' regular/'a' adaptive                                  
-    opt.gridsteps = 30;
+    opt.gridsteps = 40;
     opt.minstep = 1e-4;
     opt.uniformshare = 0.5;
     opt.gridrange = [0,Inf];
     opt.gam = @(N) ceil(sqrt(N));
     opt.plot = true;
-    opt.print = false;
+    opt.print = true;
     opt = getpairedoptions(varargin,opt,'restchk');
     
-    LVL = -2:2; % levels to plot
+    % LVL = -2:2; % levels to plot
     if opt.print
         if ~isfolder('fig'), mkdir('fig'); end
-        printfig = @(name) cellfun(@(fmt) print(gcf,['-d' fmt],'-r600',['./fig/' name '.' fmt]),{'svg','png'});
+        printfig = @(name) cellfun(@(fmt) print(gcf,['-d' fmt],'-r800',['./fig/' name '.' fmt]),{'svg','png'});
     else
         printfig = @(name) 0;
     end
@@ -85,13 +86,10 @@ function TPM = knkd_density_fit(X0,info,TESTS,varargin)
 
     if opt.plot
         GUIfigure('knkd_density','',[100,100,500,400]); clf(); hold on;
-        scatter(X0(:,1),X0(:,2),1)
-        plot(x0(:,1),x0(:,2),'k.') 
-        colormap(parula(numel(LVL)));
-        xlabel(['$' LBL{1} '$'],'interpreter','latex','fontsize',14);
-        ylabel(['$' LBL{2} '$'],'interpreter','latex','fontsize',14); 
-        xlim([0,max(GRIDS{1})]); ylim([0,max(GRIDS{2})]);
-        %printfig([name '_grid']);
+        plotgrid(g0{1}(:,1),g0{2}(1,:),LBL);
+        scatter(x0(:,1),x0(:,2),3,[1,1,1]*0.6,'fill','DisplayName','Grid Points') 
+        scatter(X0(:,1),X0(:,2),1,[0.8 0.7 1],'fill','DisplayName','Training data')
+        printfig([name '_grid']);
     end
 
     % Check that all will fit in memmory
@@ -104,7 +102,7 @@ function TPM = knkd_density_fit(X0,info,TESTS,varargin)
     M = maxarraysize() - max(d.*Ng)/2;
     d = max(d);
     gam = ceil(0.5*(M - (10+5*d)*N)/(N+d^2));
-    if isa(gam,'function_handle')
+    if isa(opt.gam,'function_handle')
         gam = min(opt.gam(N),gam);
     else
         gam = min(opt.gam,gam);
@@ -191,6 +189,11 @@ function TPM = knkd_density_fit(X0,info,TESTS,varargin)
         end
         
         if opt.plot
+            
+            % knkd_density_plot(TPM.interpolant{1}.GridVectors,TPM.interpolant{1}.Values,'pdf',{'k_n','k_d'},'ax',gca(),'ktgrid',[],'sepmdl',{'reindl1'});
+            % legend('location','northwest','EdgeColor','none','interpreter','latex')
+            printfig([name '_grid']);
+        
             knkd_density_plot(TPM.interpolant{j}.GridVectors,TPM.interpolant{j}.Values,'cdf',LBL(idx));
             title(TPM.texlbl{j},'interpreter','latex')
             printfig([name '_' TPM.keys{j}]);
@@ -283,3 +286,20 @@ function cpdfx = conditionalpdf(cpdfx,varargin)
     cpdfx(isnan(cpdfx)) = 0;
     cpdfx = min(cpdfx,prctile(cpdfx(:),99));
 end
+
+function plotgrid(x,y,LBL)
+    xticks(x); xticklabels(every_nth_lbl(x));
+    yticks(y); yticklabels(every_nth_lbl(y));
+    xlabel(['$' LBL{1} '$'],'interpreter','latex','fontsize',14);
+    ylabel(['$' LBL{2} '$'],'interpreter','latex','fontsize',14);
+    xlim([min(x),max(x)]); ylim([min(y),max(y)]);
+    grid on;
+
+    function lbl = every_nth_lbl(x,n)
+        if nargin < 2, n = round(numel(x)/4); end
+        lbl = repmat({''},1,numel(x));
+        vis = mod((1:numel(x))-numel(x),n) == 0;
+        lbl(vis) = arrayfun(@(x) num2str(x,'%0.2f'),x(vis),'unif',0);
+    end
+end
+    

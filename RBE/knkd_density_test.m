@@ -8,43 +8,56 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
 %    TPM.discrepancy = discrepancy of Box-Ordinate-Transform (BOT).
 %
 %   If KEYS ~= 'all' is provided, only models with those Row-Names will be evaluated.
+%   Default KEYS = 'new' evaluates only models that have not been tested already.
 %   
 % TPM = KNKD_DENSITY_TEST(..,'-plot') - plot histograms of BOT, Ignorance- and Energy Scores 
 %   for individual measurements on each of the tested models.
 %
 % See also: KNKD_DENSITY_FIT, KNKD_DENSITY_PREP
 
-    opt.test = 'all';
+    opt.test = 'new';
     % opt.ndays = Inf;
     % opt.mainmdl = 1;
     opt.minP = 1e-9;
     % opt.method = 'bin';
     opt = parseoptions(varargin,{'-plot','-print'},opt,'dealrest',1);
 
+    VAR = uniquecell(cat(2,'kn','kd',TPM.conditions{:}),'stable');
+    X0_test = X0_test(:,VAR);
     [N,M] = size(X0_test);
-    VAR = X0_test.Properties.VariableNames;
     
     TPM.keys = TPM.Properties.RowNames;
     name = TPM.Properties.UserData.name;
     info = TPM.Properties.Description;
     LBL = parselist(VAR,fliplr(TPM.Properties.UserData.labels),'-matchcase');
     
+    GRIDS = recover_grids(TPM,VAR);
+    Ng = cellfun(@numel,GRIDS);
+
+    TPM = table2struct(TPM,'toscalar',true);
+    
+    if ~isfield(TPM,'ignorance'), TPM.ignorance = NaN(numel(TPM.keys),1); end
+    if ~isfield(TPM,'energy'), TPM.energy = NaN(numel(TPM.keys),1); end
+    if ~isfield(TPM,'discrepancy'), TPM.discrepancy = NaN(numel(TPM.keys),1); end
+    
+    if contains(opt.test,{'new','missing'},'IgnoreCase',true)
+        notgood = @(x) x == 0 | ~isfinite(x);
+    	new = notgood(TPM.ignorance) & notgood(TPM.energy) & notgood(TPM.discrepancy);
+        opt.test = TPM.keys(new);
+    end
+    
     [opt.test,test_idx] = parselist(opt.test,TPM.keys,'-matchcase','-soft');
     if any(test_idx == 0)
-        [ia,ib] = is_synonym(opt.test(test_idx == 0),TMP.keys);
+        [ia,ib] = is_synonym(opt.test(test_idx == 0),TPM.keys);
         if ~all(ia)
             error(shortliststr(opt.test(~ia),'Unknown model'));
         end
         test_idx(test_idx == 0) = ib;
     end
-    
-    GRIDS = recover_grids(TPM,VAR);
-    Ng = cellfun(@numel,GRIDS);
 
-    TPM = table2struct(TPM,'toscalar',true);
 
     if opt.print
-        printfig = @(name) print(gcf,'-dsvg','-r600',['./fig/' name '.svg']);
+        printfig = @(name) print(gcf,'-dsvg','-r800',['./fig/' name '.svg']);
     else
         printfig = @(name) 0; % ... crickets
     end
@@ -71,11 +84,7 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
 
     % weights for trapezoidal integration
     w = point_weights(GRIDS{1},GRIDS{2});
-    
-    if ~isfield(TPM,'ignorance'), TPM.ignorance = NaN(numel(TPM.keys),1); end
-    if ~isfield(TPM,'energy'), TPM.energy = NaN(numel(TPM.keys),1); end
-    if ~isfield(TPM,'discrepancy'), TPM.discrepancy = NaN(numel(TPM.keys),1); end
-    
+
     g0 = cell(1,3);
     [g0{1:3}] = ndgrid(GRIDS{1:2},single(1:N)');
     
