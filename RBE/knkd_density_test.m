@@ -6,6 +6,7 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
 %    TPM.ignorance = median Ignorance Score
 %    TPM.energy = mean Energy Score
 %    TPM.discrepancy = discrepancy of Box-Ordinate-Transform (BOT).
+%    TPM.PIT_discrepancy = discrepancy of Probability Integral Transform (PIT) for kn, kd
 %
 %   If KEYS ~= 'all' is provided, only models with those Row-Names will be evaluated.
 %   Default KEYS = 'new' evaluates only models that have not been tested already.
@@ -20,7 +21,9 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
     % opt.mainmdl = 1;
     opt.minP = 1e-9;
     % opt.method = 'bin';
+    opt.hold = [];
     opt = parseoptions(varargin,{'-plot','-print'},opt,'dealrest',1);
+    if isempty(opt.hold), opt.hold = opt.plot && ~opt.print; end
 
     VAR = uniquecell(cat(2,'kn','kd',TPM.conditions{:}),'stable');
     X0_test = X0_test(:,VAR);
@@ -39,10 +42,11 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
     if ~isfield(TPM,'ignorance'), TPM.ignorance = NaN(numel(TPM.keys),1); end
     if ~isfield(TPM,'energy'), TPM.energy = NaN(numel(TPM.keys),1); end
     if ~isfield(TPM,'discrepancy'), TPM.discrepancy = NaN(numel(TPM.keys),1); end
+    if ~isfield(TPM,'PIT_discrepancy'), TPM.PIT_discrepancy = NaN(numel(TPM.keys),2); end
     
     if contains(opt.test,{'new','missing'},'IgnoreCase',true)
         notgood = @(x) x == 0 | ~isfinite(x);
-    	new = notgood(TPM.ignorance) & notgood(TPM.energy) & notgood(TPM.discrepancy);
+    	new = all(notgood([TPM.ignorance,TPM.energy,TPM.discrepancy,TPM.PIT_discrepancy]),2);
         opt.test = TPM.keys(new);
     end
     
@@ -54,10 +58,9 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
         end
         test_idx(test_idx == 0) = ib;
     end
-
-
+    
     if opt.print
-        printfig = @(name) print(gcf,'-dsvg','-r800',['./fig/' name '.svg']);
+        printfig = @(name) print(gcf,'-dsvg','-r600',['./fig/' name '.svg']);
     else
         printfig = @(name) 0; % ... crickets
     end
@@ -65,7 +68,6 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
     x0 = GRIDS(1:2);
     [x0{1},x0{2}] = ndgrid(x0{1:2});
     x0 = [x0{1}(:),x0{2}(:)];
-    
     X0_test = X0_test{:,:};
 
     room = maxarraysize('single')/(size(x0,1)*N)/12;
@@ -84,15 +86,23 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
 
     % weights for trapezoidal integration
     w = point_weights(GRIDS{1},GRIDS{2});
-
+    
+    
     g0 = cell(1,3);
     [g0{1:3}] = ndgrid(GRIDS{1:2},single(1:N)');
     
     q0 = cell(1,3);
     [q0{1:3}] = deal(X0_test{1:2},single(1:N)');
+    
+    gcdf = cell(1,3);
+    gcdf{3} = single(1:N)';
+    for i = 1:2
+        midpts = interpn(GRIDS{i},1);
+        gcdf{i} = midpts([1,2:2:end,end]);
+    end
 
+    ax = [];
     for j = test_idx(:)'
-    try
         if isempty(TPM.interpolant{j}) && contains(TPM.keys{j},'x')
             elements = strsplit(TPM.keys{j},'x');
             elements = regexprep(elements,'\((.*)\)','$1');
@@ -128,25 +138,28 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
         end
         Px = Px./sum(Px.*w,1:2);
         
-        if ismatrix(Px)
-            % PIT = interpn(q{:},cumsum(cumsum(W,1),2),X0_test{1:2});
+        if d == 2
             px = interpn(q{:},Px,X0_test{1:2});
         else
-            % PIT = interpn(g0{:},cumsum(cumsum(W,1),2),q0{:});
             px = interpn(g0{:},Px,q0{:});
         end
         
-        W = Px.*w;
-        W = reshape(W,numel(w),[])';
+        W0 = Px.*w;
+        W = reshape(W0,numel(w),[])';
         Px = reshape(Px,numel(w),[])';
         BOT = 1-sum(W.*(Px <= px),2);
-
         TPM.discrepancy(j) = discrepancy(BOT);
         
-%         cdf = cumsum(sum(W,2),1);
-%         TPM.PIT(j,1) = interpn(kn_grid(:,1),cdf,MD.kn(j));
-%         cdf = cumsum(W,2)./sum(W,2);
-%         TPM.PIT(j,2) = interpn(kn_grid,kd_grid,cdf,MD.kn(j),MD.kd(j));
+        for i = 2:-1:1
+            if d == 2
+                cdf = cat(i,0,cumsum(sum(W0,[1:i-1,i+1:2]),i));
+                PIT(:,i) = interpn(gcdf{i},cdf,X0_test{i});
+            else
+                cdf = cat(1,zeros(1,N),squeeze(cumsum(sum(W0,[1:i-1,i+1:2]),i)));
+                PIT(:,i) = interpn(gcdf{i},q0{3},cdf,X0_test{i},q0{3});
+            end
+            TPM.PIT_discrepancy(j,i) = discrepancy(PIT(:,i));
+        end
 
         ign = -log2(max(px,opt.minP));
         TPM.ignorance(j) = median(ign,'omitnan');
@@ -154,24 +167,20 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
         es = sum(W.*Dxxi,2) - 0.5*sum(W.*(W*Dxixj),2);
         TPM.energy(j) = sqrt(mean(es.^2));
 
-        fprintf('%s: \tIGN = %0.1f\tES = %0.2f\tDBOT = %0.2f\n',...
-            TPM.keys{j},TPM.ignorance(j),TPM.energy(j),TPM.discrepancy(j));
-
-%         TPM.keys{j} = TESTS{j};
-%         TPM.interpolant{j} = G;
-%         TPM.conditions{j} = allcond;
-% 
-%         lbl = regexp(TPM.texlbl(ie),'\$(.*) = f(\(.*\))\$','tokens');
-%         while iscell(lbl{1}), lbl = cat(1,lbl{:}); end
-%         lbl(:,2) = arrayfun(@(f,a) [f,a{:}],char('e'+(1:size(lbl,1)))',lbl(:,2),'unif',0);
-%         TPM.texlbl{j} = ['$' lbl{1} ' = ' strjoin(lbl(:,2),' \\cdot ') '$'];
+        fprintf('%s: IGN = %0.1f, ES = %0.2f\n',TPM.keys{j},TPM.ignorance(j),TPM.energy(j));
 
         if opt.plot
             % GUIfigure('knkd_density_test_metrics'); clf();
-            plot_metrics(ign,BOT,es,[],TPM.texlbl(j));
-            printfig([name '_metrics_' TPM.keys{j}]);
+            ax = plot_metrics([ign,es,BOT,PIT],'typ',{'ign','es','bot','pit','pit'},'ax',ax,...
+                'lbl',TPM.keys{j});
+            if ~opt.hold
+                ax = [];
+                printfig([name '_metrics_' TPM.keys{j}]);
+            end
         end
     end
+    if opt.hold && opt.print
+        printfig([name '_metrics_' TPM.keys{j}]);
     end
 
     TPM = struct2table(TPM);
@@ -179,12 +188,6 @@ function TPM = knkd_density_test(TPM,X0_test,varargin)
     TPM.Properties.Description = info;
     TPM.Properties.UserData.labels = [VAR;LBL]';
     TPM.Properties.UserData.name = name;
-    
     TPM = sortrows(TPM,'discrepancy');
-        
-    % save([name,'.mat'],'TPM');
 end
-
-% Pure persistance
-% X0 = [MD.kn,MD.kd,Kt,sind(MD.sunel),Kc,sKc,sKt,lastkn,lastkd];
 

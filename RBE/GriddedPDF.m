@@ -19,7 +19,7 @@ classdef GriddedPDF < matlab.mixin.Copyable
         weights double {mustBeNonnegative}
         mean
     end
-    properties (Transient = true, Hidden = true)
+    properties (Transient = true, Hidden = true) % Calculated (once) on demand
         Dxx
         wP double
         marginals
@@ -176,7 +176,7 @@ classdef GriddedPDF < matlab.mixin.Copyable
             e = W*Dxxi - 0.5*sum(W.*(W*obj.Dxx),2);
         end
         function B = resample(A,n,varargin)
-            
+        % B = RESAMPLE(A,N,..) - refine grids by N, interpolate values
             B.grids = cellfun(@(x) interpn(x,n,varargin{:}),A.grids,'unif',0);
             [g{1:A.dims}] = ndgrid(B.grids{:});
             B.P = interpn(A.grids{:},A.P,g{:},varargin{:});
@@ -197,14 +197,6 @@ classdef GriddedPDF < matlab.mixin.Copyable
                 obj.weights = obj.weights.*shiftdim(obj.weightvec{j},1-j);
             end
         end
-        function handlePropEvents(src,evnt)
-          switch src.Name 
-             case 'PropOne'
-                % PropOne has triggered an event
-             case 'PropTwo'
-                % PropTwo has triggered an event
-          end
-       end
         function varargout = test()
             
             g = {linspace(-6,6,50),linspace(-3,3,40)};
