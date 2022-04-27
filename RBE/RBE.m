@@ -100,6 +100,7 @@ function RES = RBE(MD,TPM,usedvar,varargin)
     testname = strrep(mainmdl.Properties.UserData.name,'knkd_density_','');
     testname = [testname '_' mainmdl.Properties.RowNames{1} '_' config_name];
 
+    MD.t.TimeZone = MD.location.TimeZone;
     [days,~,id] = unique(dateshift(MD.t,'end','day'));
     % worthit = accumarray(id,any(isfinite(Y),2) | MD.dark,[],@mean) > 0.8;
     
@@ -134,6 +135,7 @@ function RES = RBE(MD,TPM,usedvar,varargin)
                'Likelyhood',['$ P(y_i \mid x_i),\,y_i = \{' strrep(sensor_labels,'+',', ') '\}$'];
                'Posterior','$ P(x_i \mid Y_i)$'};    
         ax = plotstep(lbl);
+        MD.interval = 'e';
     end
         
     np = numel(picks);
@@ -244,7 +246,7 @@ function RES = RBE(MD,TPM,usedvar,varargin)
             end
 
             if opt.plot
-                plotstep(ax,P,Q,Rs,MD.kn(t),MD.kd(t),kn0,kd0,KN,KD,MD.sunel(t));
+                plotstep(ax,P,Q,Rs,MD.kn(t),MD.kd(t),kn0,kd0,KN,KD,MD.sunel(t),MD.t(t));
                 drawnow()
                     if opt.record, writeVideo(video,getframe(gcf)); end
             end
@@ -253,10 +255,10 @@ function RES = RBE(MD,TPM,usedvar,varargin)
     end
 end
     
-function ax = plotstep(ax,P,Q,R,x0,y0,xe,ye,Xt,Yt,sunel)
+function ax = plotstep(ax,P,Q,R,x0,y0,xe,ye,Xt,Yt,sunel,t)
 
     persistent H
-    try cellfun(@delete,H); end %#ok<TRYNC>
+    try cellfun(@delete,H(2:end)); H = H(1); end %#ok<TRYNC>
         
     if nargin < 2
     % Setup
@@ -276,10 +278,13 @@ function ax = plotstep(ax,P,Q,R,x0,y0,xe,ye,Xt,Yt,sunel)
             cb = matlab.graphics.illustration.colorbar.findColorBars(ax(j));
             cb.Position = cb.Position*diag([1 1 0.5 1]);
         end
+        H{1} = text(ax(1),0,-0.2,'DD-MMM-YYYY HH:MM:SS');
+        
         return;
     end  
     
-    H{1} = cdfcontour(ax(1),P,'DisplayName','AKDE');
+    H{1}.String = datestr(t);
+    H{end+1} = cdfcontour(ax(1),P,'DisplayName','AKDE');
     % [~,H{1}] = contour(ax(1),x,y,log10(P),LVL);
     
     if ~isempty(Xt)

@@ -61,11 +61,11 @@ function [X0,X0_test,info] = knkd_density_prep(MD,dt)
            'lastkn','k_{n,i-1}','circshift(kn,1)';
            'lastkd','k_{d,i-1}','circshift(kd,1)';
            'lastkt','k_{t,i-1}','circshift(kn+kd,1)';
-           'Kt','\bar{k_t^H}',sprintf('movmean(kn+kd,[%d-2,-1])',AVG_WINDOW);
-           'sKt','\sigma_t^H',sprintf('movstd(kc,[%d-2,-1])',AVG_WINDOW);
+           'Kt','K_t',sprintf('movmean(kn+kd,[%d-2,-1])',AVG_WINDOW);
+           'sKt','\sigma_{K_t}',sprintf('movstd(kc,[%d-2,-1])',AVG_WINDOW);
            'lastkc','k_{c,i-1}',getsourceof(MD,'kc');
-           'Kc','\bar{k_c^H}',sprintf('movmean(kc,[%d-2,-1])',AVG_WINDOW);
-           'sKc','\sigma_c^H',sprintf('movstd(kc,[%d-2,-1])',AVG_WINDOW);
+           'Kc','K_c',sprintf('movmean(kc,[%d-2,-1])',AVG_WINDOW);
+           'sKc','\sigma_{K_c}',sprintf('movstd(kc,[%d-2,-1])',AVG_WINDOW);
            };
 
     DEF(cellfun(@iscell,DEF)) = [DEF{cellfun(@iscell,DEF)}];
