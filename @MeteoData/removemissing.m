@@ -9,7 +9,7 @@ function MD = removemissing(MD,fld,E,W,quiet)
 
     if nargin < 2 || (isempty(fld) && ~iscell(fld)), fld = fieldnames(MD); 
     else
-        fld = parselist(fld,fieldnames(MD));
+        [fld,ix] = parselist(fld,fieldnames(MD));
     end
 
     if isempty(MD.missing) || isempty(MD.dark)
@@ -35,15 +35,17 @@ function MD = removemissing(MD,fld,E,W,quiet)
 %         na = sum(available,1);
 %         
         bad_fraction = sum(MD.flags.data.(fld{j})(filter,:) > 0,1)/n;
+        src = MD.getsourceof(fld{j});
 
         fishy = bad_fraction >= W & bad_fraction < E;
         if any(fishy) && ~quiet
-            msg = MD.flags.flagsummary(fld{j});
-            if ~all(fishy)
+            msg = flagsummary(MD.flags,fld{j},filter);
+            if ~all(fishy) 
                 msg = strsplit(msg,newline());
                 msg = strjoin(msg(fishy),newline());
-                msg = sprintf('You might want to check %s %s:\n%s',...
-                              fld{j},shortliststr(find(fishy),'column'),msg);
+                msg = sprintf('You might want to check %s.%s (%s):\n%s',...
+                              fld{j},shortliststr(find(fishy)),...
+                              shortliststr(src(fishy)),msg);
             else
                 msg = sprintf('You might want to check field %s:\n%s',fld{j},msg);
             end
@@ -53,12 +55,12 @@ function MD = removemissing(MD,fld,E,W,quiet)
         bad = bad_fraction >= E;
         if ~any(bad), continue; end
         if ~quiet
-            msg = MD.flags.flagsummary(fld{j});
+            msg = MD.flags.flagsummary(fld{j},filter);
             if ~all(bad)
                 msg = strsplit(msg,newline());
                 msg = strjoin(msg(bad),newline());
-                msg = sprintf('Flagged %s will be removed from meteo-data:\n%s',...
-                              shortliststr(fld{j},'column'),msg);
+                msg = sprintf('Flagged %s.%s (%s) will be removed from meteo-data:\n%s',...
+                              fld{j},shortliststr(find(bad)),shortliststr(src(bad)),msg);
             else
                 msg = sprintf('Flagged field %s will be removed from meteo-data:\n%s',...
                               fld{j},msg);
@@ -77,12 +79,12 @@ function MD = removemissing(MD,fld,E,W,quiet)
 
         if all(bad)
             MD.data.(fld{j}) = [];
-            MD.data.Properties.CustomProperties.source{j} = [];
+            MD.data.Properties.CustomProperties.source{ix(j)} = [];
             MD.flags.data.(fld{j}) = [];
         elseif any(bad)  
-            MD.flags.flagsummary(fld{j})
+            MD.flags.flagsummary(fld{j},filter)
             MD.data.(fld{j})(:,bad) = [];
-            MD.data.Properties.CustomProperties.source{j}(bad) = [];
+            MD.data.Properties.CustomProperties.source{ix(j)}(bad) = [];
             MD.flags.data.(fld{j})(:,bad) = [];
         end
     end 

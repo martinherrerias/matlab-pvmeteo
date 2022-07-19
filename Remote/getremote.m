@@ -79,7 +79,7 @@ function D = getremote(type,Loc,interval,dt,varargin)
         t.TimeZone = 'UTC';
         interval = [t(1)-dt/2,t(end)+dt/2];
     else
-        assert(~isempty(dt) && isnat(dt) && dt > 0, 'Incorrect time-step parameter');
+        assert(~isempty(dt) && ~isnan(dt) && dt > 0, 'Incorrect time-step parameter');
         assert(numel(interval) == 2 && diff(interval) > 0,'Bad interval');
     end
     dt = checkstep(dt,type);

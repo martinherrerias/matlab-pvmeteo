@@ -269,6 +269,7 @@ methods
     
     function MD = addfield(MD,fld,val,src,overwrite)
         Nc = size(val,2);
+        val = compatiblesize(val,MD.t);
         if nargin < 4 || isempty(src), src = []; end
         if nargin < 5 || isempty(overwrite), overwrite = false; end
         
@@ -339,6 +340,31 @@ methods
         end
         MD.data.(fld) = X;
         MD.flags.data.(fld) = G;
+    end
+    
+    function MD = qcfield(MD,varargin)
+    % MD = QCFIELD(MD,OKFCN,BIT/KEY,FLD,[FLAGIFNAN]) - shortcut for METEOQC.CHECKFIELD
+        MD.flags = checkfield(MD.flags,MD,varargin{:});
+    end
+    
+    function [MD,X,F,var_ix,col_ix] = qcsource(MD,okfcn,bit,src,flagifnan)
+    % [MD,X,F,var_ix,col_ix] = QCSOURCE(MD,OKFCN,BIT/KEY,SRC,[FLAGIFNAN]) - shortcut for
+    %   METEOQC.CHECKFIELD, but limited to a single variable (identified by source)
+    
+        narginchk(4,5);
+        if nargin < 5, flagifnan = false; end
+        
+        [X,F,var_ix,col_ix] = getbysource(MD,src);
+        fld = MD.data.Properties.VariableNames(var_ix);
+        
+        if ~isnumeric(bit), [bit,MD.flags] = flagbit(MD.flags,bit); end
+        validateattributes(bit,{'numeric'},{'integer','scalar','positive'});
+        validateattributes(okfcn,{'function_handle'},{'scalar'});
+        
+        for j = 1:numel(fld)
+           F(:,j) = meteoQC.check(X(:,j),okfcn,bit,F(:,j),flagifnan);
+           MD.flags.data.(fld{j})(:,col_ix) = F(:,j);
+        end
     end
     
     MD = removemissing(MD,fld,E,W,quiet)
@@ -640,12 +666,21 @@ methods
         MD = refresh(MD);
     end
 
-    function C = horzcat(A,B)
-    % C = HORZCAT(A,B), C = [A,B] - horizontal concatenation (add columns for METEODATA objects
-    %   with common timestamps and the same location.
+    function C = horzcat(A,varargin)
+    % C = HORZCAT(A,B,..), C = [A,B,..] - horizontal concatenation (add columns for METEODATA 
+    %   objects with common timestamps and the same location.
         
-        narginchk(2,2);
         C = A;
+        switch nargin
+        case 1, return;
+        case 2, B = varargin{1}; % continue below
+        otherwise
+        % PROVISIONAL: code below should be rewritten to take several arguments  
+            for j = 1:numel(varargin)
+                C = horzcat(C,varargin{j});
+            end
+            return;
+        end
         
         EQ = {'interval','timestep','Nt','t','location'};
         for j = 1:numel(EQ)
@@ -679,15 +714,81 @@ methods
         C.models = [A.models,B.models];
     end
     
-    function x = vertcat(varargin)
-    % TODO
-        error('vertical concatenation is still not defined');
-        % x = cat(1,varargin{:}); 
-    end
-    function x = cat(d,varargin)
+    function C = vertcat(varargin)
+    % C = VERTCAT(A,B,..), C = [A;B;..] - vertical concatenation (add time-steps for METEODATA 
+    %   objects with common fields and sources.
         
+        C = varargin{1};
+        if nargin == 1, return; end
+        
+        % x = cat(1,varargin{:}); 
+        
+        EQ = {'interval','timestep','location'};
+        for j = 1:numel(EQ)
+            for k = 1:numel(varargin)
+                B = varargin{k};
+                if isempty(C.(EQ{j})), C.(EQ{j}) = B.(EQ{j});
+                elseif ~isempty(B.(EQ{j})) && ~isequal(C.(EQ{j}),B.(EQ{j}))
+                    error('Expecting objects with common %s',EQ{j});
+                end
+            end
+        end
+
+        allflags = cellfun(@(x) x.flags.flags,varargin,'unif',0);
+        allflags = unique([allflags{:}],'stable');
+                
+        allsources = cellfun(@(x) [x.source{:}],varargin,'unif',0);
+        [allsources,ic] = unique([allsources{:}],'stable');
+        
+        allfields = cellfun(@(x) repelem(x.fieldnames,cellfun(@numel,x.source)),varargin,'unif',0);
+        allfields = cat(1,allfields{:});
+        allfields = allfields(ic);
+        
+        for k = 1:numel(varargin)
+            A = varargin{k};
+            A.flags = setflags(A.flags,allflags);
+            ic = ~ismember(allsources,[A.source{:}]);
+            if any(ic)
+                for j = find(ic)
+                    A = A.addfield(allfields{j}, NaN, allsources{j}, false);
+                end
+            end
+            if k == 1
+                C = A;
+                fld = C.fieldnames;
+            else
+                [ia,ib] = ismember(fld,A.fieldnames);
+                assert(all(ia),'Something went wrong');
+                if ~isequal(ib',1:numel(ia))
+                    A.data = A.data(:,ib);
+                    A.flags.data = A.flags.data(:,ib);
+                end
+                for j = 1:numel(fld)
+                    [ia,ib] = ismember(C.source{j},A.source{j});
+                    assert(all(ia),'Something went wrong');
+                    if ~isequal(ib,1:numel(ia))
+                        A.data.(fld{j}) = A.data.(fld{j})(:,ib);
+                        A.flags.data.(fld{j}) = A.flags.data.(fld{j})(:,ib);
+                    end
+                end
+            end
+            varargin{k} = A;
+        end
+        TT = cellfun(@(x) x.data,varargin,'unif',0);
+        C.data = cat(1,TT{:});
+        TT = cellfun(@(x) x.flags.data,varargin,'unif',0);
+        C.flags.data = cat(1,TT{:});
+        
+        allsensors = cellfun(@(x) x.sensors,varargin,'unif',0);
+        allsensors = cat(1,allsensors{:})';
+        [~,ic] = uniquecell({allsensors.ID},'stable');
+        C.sensors = allsensors(ic);
+        
+        C = checktimestamps(C,false,C.timestep);
+    end
+    function x = cat(d,varargin) 
         validateattributes(d,{'numeric'},{'integer','scalar','positive','<',3});
-        if d == 1, x = vertcat(varargin); else, x = horzcat(varargin); end
+        if d == 1, x = vertcat(varargin{:}); else, x = horzcat(varargin{:}); end
     end
           
     [UNC,SENS] = getuncertainty(MD,tolerance)

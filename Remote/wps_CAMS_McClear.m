@@ -58,7 +58,7 @@ function [MC,filename,cmd_wps] = wps_CAMS_McClear(Loc,interval,dt,varargin)
     opt.time = 'UT';
     opt.server = 'http://www.soda-is.com';
     opt.MaxDist = 1000; % should account for any rounding errors in lat, lon to 0.01°
-    opt.filename = meteofilename(Loc,interval(1),interval(2),dt,'prefix','mcclear','suffix','.csv'); 
+    opt.filename = '';
     opt = getpairedoptions(varargin,opt,'restchk'); 
     
     if isempty(opt.email)
@@ -67,6 +67,22 @@ function [MC,filename,cmd_wps] = wps_CAMS_McClear(Loc,interval,dt,varargin)
         catch
             error('Unable to retrieve valid credentials'); 
         end
+    end
+
+    % McClear WPS expects time reference = UT or TST
+    switch upper(opt.time)
+        case 'TST',opt.time = 'TST'; TZ = '';
+        case {'TU','UT','UTC'}, opt.time = 'UT'; TZ = 'UTC';
+        otherwise
+            error('Unknown time reference');
+    end
+    interval = parsetime(interval,'TimeZone',TZ);
+    assert(numel(interval) == 2 && diff(interval) >= 0,'Bad date format(s)');
+    interval(1) = dateshift(interval(1),'start','day');
+    interval(2) = dateshift(interval(2),'end','day')-days(1);
+    
+    if isempty(opt.filename)
+        opt.filename = meteofilename(Loc,interval(1),interval(2)+days(1),dt,'prefix','mcclear','suffix','.csv'); 
     end
     filename = opt.filename;
     
@@ -80,17 +96,7 @@ function [MC,filename,cmd_wps] = wps_CAMS_McClear(Loc,interval,dt,varargin)
     
     str_email = strrep(opt.email, '@', '%2540');
 
-    % McClear WPS expects time reference = UT or TST
-    switch upper(opt.time)
-        case 'TST',opt.time = 'TST'; TZ = '';
-        case {'TU','UT','UTC'}, opt.time = 'UT'; TZ = 'UTC';
-        otherwise
-            error('Unknown time reference');
-    end
-    interval = parsetime(interval,'TimeZone',TZ);
-    assert(numel(interval) == 2 && diff(interval) >= 0,'Bad date format(s)');
-
-    if opt.full && (dt ~= 1 || ~strcmp(opt.time,'UT'))
+    if opt.full && (minutes(dt) ~= 1 || ~strcmp(opt.time,'UT'))
         warning('Full mode requires 1-min time-steps at UT reference. Turning it off.');
         opt.full = false;
     end
@@ -131,7 +137,7 @@ function [MC,filename,cmd_wps] = wps_CAMS_McClear(Loc,interval,dt,varargin)
     if d > opt.MaxDist
         warning('Location in retrieved file doesn''t match request!');
     end
-    if MC.summarization ~= dt
+    if MC.dt ~= dt
         warning('Time-step in retrieved file doesn''t match request!');
     end
     if MC.date_begin > interval(1) || MC.date_end < interval(2)

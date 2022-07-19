@@ -85,6 +85,7 @@ function MD = getsunpos(MD,check,rewrite)
     SP.AMa(SP.sunel >= 0) = pvl_relativeairmass(90-SP.sunel(SP.sunel >= 0));
     SP.AMa = SP.AMa.*Patm/101325;
 
+    toflag = false(MD.Nt,1);
     if (MD.interval == 'i' || MD.timestep < minutes(5)) && any((noTa | noPa) & ~(SP.sunel < -1))
     % Estimate the error due to refraction correction using Patm/Ta defaults:
     %  + up to ~14% error in barometric pressure
@@ -100,9 +101,7 @@ function MD = getsunpos(MD,check,rewrite)
 
         r = solarposition.refraction(SP.sunel,'-app');
         r = (0.14.*noPa + 0.12.*noTa).*r; 
-        toflag = (r > dw) & ~(SP.sunel < -1);
-    else
-        toflag = false(MD.Nt,1);
+        toflag(incomplete) = (r > dw) & ~(SP.sunel < -1);
     end
 
     [b,MD.flags] = flagbit(MD.flags,'interp');

@@ -86,7 +86,7 @@ function [F,MD,msg] = irradianceQC(MD,t,sunel,varargin)
     
     if nargout > 1, MD = reassign(MD,D,fields); end
     
-    if nargout > 2, msg = flagsummary(F,FLAGS); end
+    if nargout > 2, msg = flagsummary(F,FLAGS,~MD.dark); end
 end
 % 
 % function [idx,list] = parselist(list,LIST,name)

@@ -61,7 +61,7 @@ function MD = completemeteodata(MD)
         
     MD = removemissing(MD); 
 
-    printif('\n%s\n',flagsummary(MD.flags,'all',1));
+    printif('\n%s\n',flagsummary(MD.flags,'all',~MD.dark,1));
 
     % Complete data structure with McClear + MERRA2
     if opt.useweb

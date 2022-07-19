@@ -83,9 +83,25 @@ function [Xc,varargout] = fillgaps(X,dt,timescale,varargin)
         opt.lags(opt.lags > maxlag) = [];
     end
 
-    % Gap-filling via 
-    [Xr,S,RC,L,opt_MSSA] = MSSA(Xr,'exclude',ex,'lags',opt.lags,varargin{:});
-        
+    if any(isnan(Xr(~ex,:)),'all') || nargout > 1
+        try
+            % Gap-filling via MSSA
+            [Xr,S,RC,L,opt_MSSA] = MSSA(Xr,'exclude',ex,'lags',opt.lags,varargin{:});
+        catch ERR
+            if nargout > 1, rethrow(ERR); end
+            
+            % Linear interpolation
+            for j = 1:size(Xr,2)
+                givn = ~isnan(Xr(:,j));
+                gaps = ~givn & ~ex;
+                if any(gaps)
+                    F = griddedInterpolant(find(givn),Xr(givn,j),'linear','nearest');
+                    Xr(gaps,j) = F(find(gaps)); %#ok<FNDSB>
+                end                
+            end
+        end
+    end
+    
     % resample, if required
     if dt(1) < dt(2)
         [Xc,W] = resamplestructure(Xr,fliplr(dt),'-centered','-full');

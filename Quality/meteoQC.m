@@ -19,7 +19,7 @@ properties (Hidden,Constant)
     %  	16 	Compared with a corresponding measurement the measurement is too low
     %  	32 	Compared with a corresponding measurement the measurement is too high 
         
-    FLAGS = {'NA','num','abs_phys','rel_phys','flat','interp','other'...
+    FLAGS = {'NA','num','abs_phys','rel_phys','flat','interp','manual','other'...
              'BSRN_abs_lo','BSRN_abs_hi','BSRN_rare_lo','BSRN_rare_hi',...
              'CIE_lo','CIE_hi','CIE_out',...
              'CS_lo','CS_hi',...
@@ -802,7 +802,7 @@ methods (Static = true)
                continue;
             end
             notok = any(bitget(F,B),3);
-            if any(notok)
+            if any(notok,'all')
                 MD.(fields{j})(notok) = NaN;
             end
         end
@@ -1087,7 +1087,7 @@ methods
         end
     end
 
-    function msg = flagsummary(S,FLD,short)
+    function msg = flagsummary(S,FLD,filter,short)
     % Generate a summary string of the type:
     %
     %     'ENI: X/Y values flagged (0.0% num, 0.0% very_low, ...)
@@ -1097,7 +1097,8 @@ methods
         if nargin < 2 || (isempty(FLD) && ~iscell(FLD)), FLD = fieldnames(S); 
         else, FLD = parselist(FLD,fieldnames(S)); 
         end
-        if nargin < 3, short = false; end
+        if nargin < 3, filter = true; end
+        if nargin < 4, short = false; end
         
         Nflags = numel(S.flags);
         
@@ -1108,30 +1109,38 @@ methods
         for j = 1:numel(FLD)
             F = S.data.(FLD{j});
             [N,M] = size(F);
+            if all(filter)
+                Nf = N; 
+                suffix = '';
+            else
+                Nf = nnz(filter);
+                suffix = sprintf(' (from %0.1f%% subset)',Nf/N*100);
+            end
             
-            nbad = sum(F > 0,1);
+            nbad = sum(F > 0,1) & filter;
             if all(nbad == 0)
-                if ~short, msg{j} = {[FLD{j} ': no values flagged, 100% available']}; end
+                if ~short, msg{j} = {[FLD{j} ': no values flagged, 100% available' suffix]}; end
                 continue; 
             end
             
             msg{j} = cell(M,1);
             for k = 1:M
     
-                available = bitget(F(:,k),NA_bit) == 0;
+                available = bitget(F(:,k),NA_bit) == 0 & filter;
                 a = nnz(available);
                 
-                nbad = sum(F > 0,1);
+                nbad = sum(F > 0,1) & filter;
             
                 if M == 1, ID = FLD{j}; else, ID = sprintf('%s.%d',FLD{j},k); end
                 if nbad(k) == 0
                     if ~short
-                        msg{j}{k} = sprintf('%s: no values flagged, %0.1f%% available',ID,a/N*100); 
+                        msg{j}{k} = sprintf('%s: no values flagged, %0.1f%% available%s',...
+                            ID,a/Nf*100,suffix); 
                     end
                     continue; 
                 end
-                msg{j}{k} = sprintf('%s: %d/%d values flagged, %0.1f%% available',...
-                    ID,nbad(k),a,a/N*100);
+                msg{j}{k} = sprintf('%s: %d/%d values flagged, %0.1f%% available%s',...
+                    ID,nbad(k),a,a/Nf*100,suffix);
 
                 B = bitget(repmat(F(:,k),1,Nflags),repmat(1:Nflags,N,1));
                 share = sum(B,1)/a*100;
