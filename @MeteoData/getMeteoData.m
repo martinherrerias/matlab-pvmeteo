@@ -263,16 +263,14 @@ function [MD, t, Location] = readgeneric(data)
 %    2019-03-11T15:30:00Z 100.0 200.0 50.0 20.0 ..
 
     % Parse variable names to case-sensitive convention
-    data.headers = standardnames(data.headers);
+    headers = MeteoData.findfields(data.headers,'-soft');
 
     % Read Location details and UTC offset from comment lines
     REQFIELDS = {'name','latitude','longitude','altitude','interval'};
     missing = setdiff(REQFIELDS,fieldnames(data.params));
     assert(isempty(missing),'Missing %s',shortliststr(missing,'parameter','colon',':'));
     
-    REQVARS = {'time'}; 
-    missing = setdiff(REQVARS,data.headers);
-    assert(isempty(missing),'Missing %s',shortliststr(missing,'column','colon',':'));
+    assert(headers{1} == 't','Expecting first column to be timestamp');
 
     if isfield(data.params,'name'), Location.name = data.params.name; end
     Location.latitude = str2double(data.params.latitude);
@@ -353,7 +351,7 @@ function [MD, t, Location] = readgeneric(data)
     end  
 
     % ... and just dump the rest under a field named as each header
-    for j = 2:numel(data.headers), MD.(data.headers{j}) = data.data{j}; end
+    for j = 2:numel(headers), MD.(data.headers{j}) = data.data{j}; end
 end
 
 function [MD, t, Location] = ReadSolarGIS(data)
@@ -386,10 +384,12 @@ function [MD, t, Location] = ReadSolarGIS(data)
     UTCoffset = checktimezone(data.params.utcoffset,'UTC');
     
     % Parse variable names to case-sensitive convention
-    data.headers = standardnames(data.headers);
+    headers = MeteoData.findfields(data.headers,'-soft');
     
-    REQVARS = {'date','time','GHI','BNI','DHI','Ta'}; 
-    missing = setdiff(REQVARS,data.headers);
+    assert(strcmpi(headers{1},'date') && headers{2} == 't','Expecting Date and Time as first columns');
+    
+    REQVARS = {'GHI','BNI','DHI','Ta'}; 
+    missing = setdiff(REQVARS,headers);
     assert(isempty(missing),'Missing %s',shortliststr(missing,'column','colon',':'));
 
     if isfield(data.params,'interval')
@@ -411,7 +411,7 @@ function [MD, t, Location] = ReadSolarGIS(data)
     MD.timestep = dt;
 
     % ... and just dump the rest under a field named as each header
-    for j = 3:numel(data.headers), MD.(data.headers{j}) = data.data{j}; end
+    for j = 3:numel(headers), MD.(data.headers{j}) = data.data{j}; end
 
     % if ~isfield(MD,'vw')
     %     MD.vw = [];
@@ -526,60 +526,4 @@ function t = doy2time(DoY,UTCoffset)
     
     t = parsetime(datenum(y,1,1) + DoY - 1,'convertfrom','datenum','interval',{'b','c'},...
         'TimeZone',UTCoffset);
-end
-
-function output = standardnames(input)
-% Standardize (caps-sensitive) variable names, replacing known aliases, and removing spaces,
-% punctuation, and upper-cases from any other names.
-%
-% FUTURE: consider checking units, transform equivalent fields (e.g. sza & el), use regexp?
-
-    assert(iscellstr(input) || isstring(input));
-
-    % Known aliases for meteorological variables (case-insensitive, left-most is official)
-    ALIAS = {
-        {'time','timestamp','datetime','UTTime'};
-        {'AMa','AM','airmass','airmassabsolute'};
-        {'Az','SunAz','azimuth','solarazimuth'};
-        {'sza','sza','zenith'};
-        {'El','SunEl','elevation'};
-        {'CSBHI','ClearSkyBHI'};
-        {'CSBNI','ClearSkyBNI','ClearSkyDNI'};
-        {'CSDHI','ClearSkyDHI'};
-        {'CSGHI','ClearSkyGHI'};
-        {'GHI','ShortwaveIrradiation'};
-        {'BNI','DNI'};
-        {'DHI','DIF'};
-        {'ENI','Gextra','DNITOA'};
-        {'TOA','TOA','GHITOA'};
-        {'Patm','Pressure'};
-        {'QcFlag','flag'};
-        {'RH','RelativeHumidity','RelHum'};
-        {'Ta','Temperature','Tamb','temp','temperatureair'};
-        {'Tm','ModuleTemp','ModuleTemperature','temperaturemodule'};
-        {'tpw','tcwv','totalprecipitablewater'};
-        {'vw','WindSpeed'};
-        {'windir','WindDirection'};
-        {'kd','fractiondiffuse'};
-        {'kt','clearnessghi'};
-    };
-
-    % Remove spaces & punctuation
-    output = lower(matlab.lang.makeValidName(input));
-    output = regexprep(output,'[\s-_]','');
-
-    used = false(numel(ALIAS),1);
-    for k = 1:numel(output)
-        for j = find(~used)'
-            if isempty(j), continue; end
-            if any(strcmpi(output{k},ALIAS{j}))
-               output(k) = ALIAS{j}(1);
-               used(j) = true;
-               break;
-            end
-        end
-        if all(used), break; end
-        if used(j), continue; end
-    end
-
 end

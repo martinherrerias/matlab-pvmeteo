@@ -1,8 +1,6 @@
 function varargout = findfields(S,varargin) 
 % R = METEODATA.FINDFIELDS(S) - Rename fields of S according to list of common aliases
 % [R,I] = METEODATA.FINDFIELDS(S) - Return also an index I of the actual substitutions
-% [M,I,U] = METEODATA.FINDFIELDS(S) - Return a partial copy M and index I with fields that 
-%   have been matched/renamed, and a residual U with all other fields. 
 %
 % [..] = METEODATA.FINDFIELDS(S,'name','source',..,['-stickler']) - provide explicit pairs of
 %   standardized* names and sources to map them from. Unless '-stickler' flag is set, names
@@ -43,7 +41,7 @@ function varargout = findfields(S,varargin)
         ALIAS.sensors = {'sensors','sens'};
         ALIAS.flags = {'flags'};
 
-        ALIAS.t = {'t','time','date_time','timestamp','date'};
+        ALIAS.t = {'t','time','date_time','timestamp','datetime'};
         ALIAS.timestep = {'timestep','dt'};
         ALIAS.interval = {'interval','summarization'};
 
