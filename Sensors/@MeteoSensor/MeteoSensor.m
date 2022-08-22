@@ -293,13 +293,15 @@ methods
 
     U = uncertainty(S,x,AOI,B,Ts)
     
-    function S = parselocations(S,AbsLoc,Trck)
+    function S = parselocations(S,varargin)
     % S = MeteoSensor.parselocations(S,Loc,Trck) 
     % Parse relative sensor location labels of the type S(j).location = 'N + [dx,dy,dz]', where
     % N is a mount ID matching TRCK and [dx,dy,dz] an offset in mount coords. Return absolute  
     % sensor location S(j).location = [x,y,z], and angles S(j).tilt, S(j).azimuth.
         
-        if nargin < 3, Trck = []; end
+        opt = parseoptions(varargin,{'-abs'},{'Loc','Trck'},{[],[]},'dealrest',2);
+        Trck = opt.Trck;
+        AbsLoc = opt.Loc;
     
         loc = {S.location};
         relative = cellfun(@ischar,loc);
@@ -318,10 +320,11 @@ methods
            AbsLoc = []; 
         end
         
+        if ~isempty(Trck)
+            [~,~,~,TLoc] = checkcoordsystem(0,0,0,Trck,'output','prj');
+        end
+            
         if any(known)
-            if ~isempty(Trck)
-                [~,~,~,TLoc] = checkcoordsystem(0,0,0,Trck,'output','prj');
-            end
             d = solarposition.arcdist(AbsLoc.latitude,AbsLoc.longitude,...
                                       TLoc.origin(2),TLoc.origin(1),6370);
             if d > 1
@@ -333,9 +336,9 @@ methods
         if ~isempty(AbsLoc) && any(known)
             for j = find(known)
                 [x,y,z] = checkcoordsystem(loc{j}(1),loc{j}(2),loc{j}(end:3),AbsLoc,'output','abs');
-                if ~isempty(Trck)
+                if ~isempty(Trck) && ~opt.abs
                     [x,y] = abs2prj(x,y,TLoc.origin(2),TLoc.origin(1),TLoc.rotation);
-                    z = z - AbsLoc.altitude + TLoc.altitude;
+                    z = z - AbsLoc.altitude + TLoc.origin(3);
                 end
                 S(j).location = [x,y,z];
             end
@@ -376,10 +379,21 @@ methods
                 if strcmp(Mt.type,'0a')
                     [R,ZXZ] = mountrotations(Mt,0,0,'N2E');
                     S(k).location = Mt.centers + R*Mt.axisoffset;
-                    S(k).mount(1).tilt = ZXZ(1,1,2);
-                    S(k).mount(1).azimuth = -ZXZ(1,1,1); % 'N2W' -> 'N2E'
+                    S(k).mount(1).tilt = ZXZ(2);
+                    S(k).mount(1).azimuth = ZXZ(1);
                     S(k).mount(1).slope = 0;
                     S(k).mount(1).type = '0a';
+                    
+                    if opt.abs
+                       x = S(k).location(1); 
+                       y = S(k).location(2);
+                       [y,x] = prj2abs(x,y,TLoc.origin(2),TLoc.origin(1),TLoc.rotation);
+                       S(k).location(1:2) = [x,y];
+                       S(k).location(3) = S(k).location(3) + TLoc.origin(3);
+                       ZXZ(1) = ZXZ(1) + TLoc.rotation;
+                       ZXZ(1) = solarposition.fixazimuth(ZXZ(1),'Eq0','N2E',TLoc.origin(2));
+                       S(k).mount(1).azimuth = ZXZ(1);
+                    end
                 else
                     S(k).location = Mt.centers;
                     S(k).mount = rmfield(Mt,'centers');
