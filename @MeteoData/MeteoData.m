@@ -214,6 +214,11 @@ methods
         MD.data(:,ib) = [];
         % MD.data.Properties.CustomProperties.source(ib) = [];
         MD.flags.data(:,ib) = [];
+        
+        if ~isempty(MD.uncertainty)
+            fld = intersect(fieldnames(MD.uncertainty),fld);
+            MD.uncertainty.data(:,fld) = [];
+        end
     end
     
     function [MD,X,F] = rmsource(MD,src)
@@ -221,16 +226,20 @@ methods
     %   flags F are returned as second and third arguments.
     
         [X,F,ib,ic] = getbysource(MD,src);
-        for j = unique(ib)
+        fld = MD.data.Properties.VariableNames;
+        for j = unique(ib)'
             inj = (ib == j);
-            fld = MD.data.Properties.VariableNames{j};
-            if isempty(setdiff(1:size(MD.data.(fld),2),ic(inj)))
-                MD.data.(fld) = [];
-                MD.flags.data.(fld) = [];
+            if isempty(setdiff(1:size(MD.data.(fld{j}),2),ic(inj)))
+                MD.data.(fld{j}) = [];
+                MD.flags.data.(fld{j}) = [];
             else
-                MD.data.(fld)(:,ic(inj)) = [];
-                MD.data.Properties.CustomProperties.source{j}(ic(inj)) = [];
-                MD.flags.data.(fld)(:,ic(inj)) = [];
+                MD.data.(fld{j})(:,ic(inj)) = [];
+                k = fieldidx(MD,fld{j}); % might not be j any more
+                MD.data.Properties.CustomProperties.source{k}(ic(inj)) = [];
+                MD.flags.data.(fld{j})(:,ic(inj)) = [];
+            end
+            if ~isempty(MD.uncertainty) && isfield(MD.uncertainty,fld{j})
+                MD.uncertainty.data.(fld{j})(:,ic(inj)) = [];
             end
         end
     end
@@ -301,12 +310,14 @@ methods
         [~,ib] = ismember(fld,MD.data.Properties.VariableNames);
 
         if ib == 0
+        % add as new field
             n = 1;
             MD.data.(fld) = val;
             MD.flags.data.(fld) = zeros(MD.Nt,1,meteoQC.TYPE);
             ib = size(MD.data,2);
             overwrite = false;
         else
+        % add as column to field ib
             n = size(MD.data.(fld),2)+1;
             if overwrite
                 [overwrite,ic] = ismember(src,cellstr(MD.source{ib}));
@@ -314,6 +325,10 @@ methods
             end
             MD.data.(fld)(:,n) = val;
             MD.flags.data.(fld)(:,n) = 0;
+            
+            if ~isempty(MD.uncertainty) && isfield(MD.uncertainty,fld)
+                MD.uncertainty.data.(fld)(:,n) = NaN;
+            end
         end
         
         if overwrite, return; end
@@ -329,9 +344,21 @@ methods
         MD.data.Properties.CustomProperties.source{ib}(n) = {src};
     end
     
-    function MD = fieldop(MD,fld,op)
+    function MD = fieldop(MD,fld,op,newsrc)
+    % MD = FIELDOP(MD,FLD,@OP,[SRC]) - replace MD.(FLD) by OP(MD.(FLD)), e.g. to reduce redundant
+    %   measurements (a multi-column field) into a single column.
+        
         src = getsourceof(MD,fld);
-        [X,F] = getbysource(MD,src);
+        [X,F,ix] = getbysource(MD,src);
+        
+        if nargin < 4
+            if isscalar(src), newsrc = src;
+            else
+                newsrc = regexprep(func2str(op),'(@\(\w*\)\b?)?(\w*).*','$2');
+                newsrc = [newsrc,'(' strjoin(src,',') ')']; 
+            end
+        end
+        newsrc = cellstr(newsrc);
 
         X = op(X);
         G = zeros(size(X),meteoQC.TYPE); 
@@ -340,6 +367,7 @@ methods
         end
         MD.data.(fld) = X;
         MD.flags.data.(fld) = G;
+        MD.source(ix) = newsrc;
     end
     
     function MD = qcfield(MD,varargin)
@@ -370,8 +398,15 @@ methods
     MD = removemissing(MD,fld,E,W,quiet)
     
     function X = renamevars(X,varargin)
+    % MD = renamevars(MD,VARS,NEWNAMES) 
         X.data = renamevars(X.data,varargin{:});
-        X.flags.data = renamevars(X.flags.data,varargin{:}); 
+        X.flags.data = renamevars(X.flags.data,varargin{:});
+        if ~isempty(X.uncertainty)
+            [vars,newnames] = deal(varargin{:});
+            vars = cellstr(vars); newnames = cellstr(newnames);
+            ia = ismember(vars,fieldnames(X.uncertainty));
+            X.uncertainty.data = renamevars(X.uncertainty.data,vars(ia),newnames(ia));
+        end
     end
     
     function MD = MeteoData(X,varargin)
@@ -525,7 +560,7 @@ methods
         MD = checktimestamps(MD);
     end
     
-    MD = checksensors(MD,sensors,assumedefaults)
+    MD = checksensors(MD,sensors,assumedefaults);
 
     function MD = checktimestamps(MD,regular,dt)
     % obj.checktimestamps() - Timestep parsing & regularization (assume UTC, if missing)
@@ -646,7 +681,7 @@ methods
         if ~isempty(MD.uncertainty)
             MD.uncertainty.data = filterstructure(MD.uncertainty.data,varargin{:});
         end
-        MD = checktimestamps(MD);
+        MD = checktimestamps(MD,false);
         
         if ~isequal(MD.timestep,original.timestep)
         % Update effective solar position
@@ -670,6 +705,10 @@ methods
     % C = HORZCAT(A,B,..), C = [A,B,..] - horizontal concatenation (add columns for METEODATA 
     %   objects with common timestamps and the same location.
         
+        if any(cellfun(@(x) ~isempty(x.uncertainty),[{A},varargin]))
+           warning('Uncertainty information will be discarded during concatenation');
+        end
+    
         C = A;
         switch nargin
         case 1, return;
@@ -743,6 +782,10 @@ methods
         allfields = cellfun(@(x) repelem(x.fieldnames,cellfun(@numel,x.source)),varargin,'unif',0);
         allfields = cat(1,allfields{:});
         allfields = allfields(ic);
+        
+        if any(cellfun(@(x) ~isempty(x.uncertainty),varargin))
+           warning('Uncertainty information will be discarded during concatenation');
+        end
         
         for k = 1:numel(varargin)
             A = varargin{k};
@@ -831,8 +874,8 @@ methods
             
             if numel(MD.source{j}) <= 1, continue; end
 
-            for s = 1:numel(PRIORITY)
-                idx = contains(MD.source{j},PRIORITY{s});
+            for newsrc = 1:numel(PRIORITY)
+                idx = contains(MD.source{j},PRIORITY{newsrc});
                 if any(idx) && ~all(idx)
                     MD = rmsource(MD,MD.source{j}(~idx));
                 end
@@ -898,7 +941,7 @@ methods (Static = true)
     end
     
     [S, time, Loc] = getMeteoData(filename,filetype);
-    
+        
     function f = varnames(types)
     % C = METEODATA.VARNAMES(TYPES) - Return named subsets of known MeteoData properties, e.g.
     %
