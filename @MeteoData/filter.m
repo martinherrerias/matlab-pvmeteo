@@ -84,6 +84,7 @@ function MD = filter(MD,varargin)
 
         MD.timestep = dt*opt.downsample;
         MD.info{end+1} = sprintf('%dX-Downsampled',opt.downsample);
+        MD = MD.refresh();
 
         % Update effective solar position, using Linke-Turbidity data, if available
         % TODO: let solar position be irradiance weighted instead, i.e. try to keep closure
