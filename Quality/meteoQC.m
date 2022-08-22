@@ -44,14 +44,15 @@ methods (Static = true)
 
         validateattributes(MD,{'MeteoData'},{'nonempty'});
 
-        % opt.independent = false;
-        % opt.sequence = 'all';
-        % opt.valid = @(x) isfinite(x);
-        % opt.flag2nan = {'num'};
-        % opt.iterations = 1;
+%         OPT.independent = false;
+%         OPT.sequence = 'all';
+%         OPT.valid = @(x) isfinite(x);
+%         OPT.flag2nan = {'num'};
+%         OPT.iterations = 1;
         
         opt = getSimOption(cellfun(@(f) ['meteoQC.' f],OPT,'unif',0));
         opt = parseoptions(varargin,{'-independent','-basic'},opt.meteoQC,'dealrest');
+        if isempty(opt.flag2nan), opt.flag2nan = {}; end
         
         if isempty(MD.flags) || any(any(isfield(MD,FLD) & ~isfield(MD.flags,FLD)))
            MD.flags = meteoQC(MD,MD.flags); 

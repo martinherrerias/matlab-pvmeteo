@@ -73,13 +73,14 @@ function [Kd,Kn,mdl] = diffuse_fraction(varargin)
         
     MDL = cell2struct(MDL',{'name','input','output','fcn'});
     
-    if ischar(varargin{end})
-    % Explicit model request
-        [~,ic] = parselist(varargin{end},{MDL.name},'model');
-        model = MDL(ic);
+    model = [];
+    if ischar(varargin{end}) 
+        if ~contains(lower(varargin{end}),{'','best','auto'})
+        % Explicit model request
+            [~,ic] = parselist(varargin{end},{MDL.name},'model');
+            model = MDL(ic);
+        end
         varargin(end) = [];
-    else
-        model = [];
     end
     
     % parse both positional & name-value pair arguments

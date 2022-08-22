@@ -97,7 +97,7 @@ function MD = firstguess(MD,discardflags,fillgaps)
     if ~all(isfield(S,{'GHI','DHI','BNI'}))
     % Get everything from GHI, using DIRINT model for diffuse fraction
 
-        args = {kt,'sza',90-MD.data.sunel,'Patm',MD.data.Patm}; % reindl, Orgill-Hollands, DISC, etc.
+        args = {'kt',kt,'sza',90-MD.data.sunel,'Patm',MD.data.Patm}; % reindl, Orgill-Hollands, DISC, etc.
         if isfield(MD,'CSGHI')
             CSGHI = max(MD.data.CSGHI,[],2);
             ktc = CSGHI./EHI; ktc(~isfinite(CSGHI) | EHI <= 0) = NaN;
