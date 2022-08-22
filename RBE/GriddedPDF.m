@@ -11,6 +11,7 @@ classdef GriddedPDF < matlab.mixin.Copyable
     end
     properties (GetAccess = public, SetAccess = private)
         grids (1,:) cell
+        lastnorm (1,1) double {mustBeNonnegative}
     end
     properties (Transient = true, GetAccess = public, SetAccess = private)
         gridsize (1,:) double {mustBePositive,mustBeInteger} = []
@@ -39,11 +40,21 @@ classdef GriddedPDF < matlab.mixin.Copyable
             obj.P = P;
         end
         function set.P(obj,P)
-            if isempty(obj.gridsize) || isempty(obj.weights) %#ok<MCSUP>
+            if isempty(obj.gridsize) || isempty(obj.weights) || isempty(obj.weights) %#ok<MCSUP>
                 obj = GriddedPDF.loadobj(obj); % solves initialization issue (<MCSUP> warning)
+                justloaded = true;
+            else
+                justloaded = false;
             end
-            P = compatiblesize(P,obj.weights);   %#ok<MCSUP>
-            obj.P = P/sum(P.*obj.weights,'all'); %#ok<MCSUP>
+            P = compatiblesize(P,obj.weights);    %#ok<MCSUP>
+            w = sum(P.*obj.weights,'all');        %#ok<MCSUP>
+            if ~justloaded, obj.lastnorm = w; end %#ok<MCSUP>
+            if w > 0
+                obj.P = P/w;
+            else
+                if isempty(obj.P), obj.P = zeros(obj.gridsize); end %#ok<MCSUP>
+                obj.P(:) = 1/sum(obj.weights,'all'); %#ok<MCSUP>
+            end
             obj.reset();
         end
         function reset(obj)
