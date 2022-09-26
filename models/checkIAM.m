@@ -85,7 +85,6 @@ function [f,info,IAM,warnmsg] = checkIAM(IAM,varargin)
         assert(isempty(varargin),'Unrecognized arguments');
     end
         
-    scalarposfld = @(s,fld) isfield(s,fld) && isscalar(s.(fld)) && s.(fld) > 0;
     if isstruct(IAM)
         assert(isscalar(IAM) && isfield(IAM,'model'),'Invalid structure');
         IAM.model = parselist(IAM.model,ALIAS,'IAM model','');
@@ -97,8 +96,9 @@ function [f,info,IAM,warnmsg] = checkIAM(IAM,varargin)
             f = @(x) 1*(x < 90);
             
         case 'ashrae'
-            if scalarposfld(IAM,'maxIncAngle') 
-                if ~scalarposfld(IAM,'b')
+            if isvalidfield(IAM,'maxIncAngle','positive','<',90)
+                
+                if ~isvalidfield(IAM,'b','positive')
                     IAM.b = 1/(secd(IAM.maxIncAngle)-1);
                 else
                     DEF.maxIncAngle = asecd(1 + 1./IAM.b);
@@ -124,8 +124,8 @@ function [f,info,IAM,warnmsg] = checkIAM(IAM,varargin)
             info = sprintf('Physical-refraction IAM: K = %0.1f/m, L = %0.1fmm, n = %0.2f',K,L*1000,n);
 
         case 'martinruiz'
-            if scalarposfld(IAM,'maxloss') 
-                if ~scalarposfld(IAM,'ar')
+            if isvalidfield(IAM,'maxloss','positive','<',0.25) 
+                if ~isvalidfield(IAM,'ar','positive')
                     IAM.ar = martinruizfit(IAM.maxloss);
                 else
                     DEF.maxloss = martinruizmaxloss(IAM.ar);
@@ -235,5 +235,12 @@ function y = martinruizmaxloss(a)
         b = -1/a;
         x = (lambertwlog(b+1)-1)./b;
         y = -(b.*exp(b).*x.^2)./((x.*b+1).*(1-exp(b)));
+    end
+end
+
+function ok = isvalidfield(S,fld,varargin)
+    ok = isfield(S,fld) && ~isempty(S.(fld));
+    if isfield(S,fld) && ~isempty(S.(fld))
+        validateattributes(S.(fld),'numeric',[{'real','scalar'},varargin]);
     end
 end

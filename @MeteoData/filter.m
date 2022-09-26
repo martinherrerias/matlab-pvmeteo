@@ -137,6 +137,7 @@ function filter = parsefilter(MD,expr)
     
     validateattributes(expr,{'char'},{'nonempty'},'','filter expression');
 
+    MD = refresh(MD);
     Nt = MD.Nt;
     t = MD.t;
     
@@ -146,14 +147,13 @@ function filter = parsefilter(MD,expr)
     availability = accumarray(dayidx,MD.available & ~MD.dark,[],@sum)./ ...
                    accumarray(dayidx,~MD.dark,[],@sum);
                
-    available = availability(dayidx) > MINAVAIL;
+    available = MD.available & availability(dayidx) > MINAVAIL;
 
     notdark = ~MD.dark;
     wholedays = diff(notdark)~=0;
     wholedays = [wholedays;0] | [0;wholedays] | notdark;
     
     wholedays = wholedays & availability(dayidx) > GOODAVAIL;
-
 
     % Split keys of the form 'NNXX' into filter = 'XX', n = NN
     fkey = regexp(lower(expr),'(\d*)(\D+)','tokens');
@@ -179,7 +179,8 @@ function filter = parsefilter(MD,expr)
         case 'rnd'
         % XXrnd - pick n (predictable!) random samples
             assert(n > 0 && mod(n,1) == 0,'NNrnd filter requires non-zero integer NN');
-            Na = nnz(MD.available);
+            filter = available & notdark;
+            Na = nnz(filter);
             if Na < n
                 warning('cmd:Nrnd','No %d samples are available, returning all %d',n,Na);
                 n = Na;
@@ -187,8 +188,7 @@ function filter = parsefilter(MD,expr)
             f = false(Na,1);
             rng(12345); % make the sequence predictable, given Na,n
             f(sort(randperm(Na,n))) = true;
-            filter = false(Nt,1);
-            filter(MD.available) = f;
+            filter(filter) = f;
         otherwise
         % try to run whatever is in filter as matlab code
         

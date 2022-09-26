@@ -100,7 +100,7 @@ methods
         dt = MD.timestep;
     end
     function MD = set.timestep(MD,dt)
-        if isempty(dt), dt = minutes(NaN); end
+        if isempty(dt) || isnan(dt), dt = minutes(NaN); end
         validateattributes(dt,'duration',{'scalar'});
         MD.timestep = dt;
         if ~isempty(MD.data) && isregular(MD.data)
@@ -565,7 +565,7 @@ methods
     function MD = checktimestamps(MD,regular,dt)
     % obj.checktimestamps() - Timestep parsing & regularization (assume UTC, if missing)
 
-        if nargin < 2, regular = true; end
+        % if nargin < 2, regular = true; end
         if nargin < 3, dt = []; end
 
         if isempty(MD.interval)
@@ -590,6 +590,7 @@ methods
                 [u,dt,idx,ia] = parsetime(MD.t,'step',dt,'interval',MD.interval,'-regular');
             end
         end
+        if nargin < 2, regular = MD.interval ~= 'i'; end
 
         MD.t = u(idx(ia));
         MD.timestep = dt;
@@ -601,7 +602,7 @@ methods
         n = accumarray(ia,1);
         % repeated = idx(n > 1);
             
-        if any(n > 1) || numel(u) > MD.Nt || ~issorted(idx(ia))
+        if any(n > 1) || numel(MD.t) ~= MD.Nt || ~issorted(idx(ia))
         % Average repeated time-steps, re-sort and regularize
 
             F = sparse(idx(ia),1:numel(ia),1./n(ia),numel(u),numel(ia));
@@ -681,7 +682,11 @@ methods
         if ~isempty(MD.uncertainty)
             MD.uncertainty.data = filterstructure(MD.uncertainty.data,varargin{:});
         end
-        MD = checktimestamps(MD,false);
+        if size(varargin{1},2) > 1
+            MD = checktimestamps(MD,false);
+        else
+            MD = checktimestamps(MD,false,MD.timestep);
+        end
         
         if ~isequal(MD.timestep,original.timestep)
         % Update effective solar position
@@ -897,7 +902,7 @@ methods
     %   P: structure with vector fields (solar position variables)
     %   U: irradiance uncertainty
     
-        [MD,B,U] = bestimate(MD);
+        [MD,B,U] = bestimate(MD,'fillgaps',false);
         % B = timetable2struct(MD.data(:,{'kn','kt','kd'}));
         MD = cleanup(MD);
 

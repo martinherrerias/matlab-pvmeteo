@@ -26,7 +26,9 @@ function MD = completemeteodata(MD)
 %       DHI < k2·CSDHI where factors k1, k2 are estimated from a inter-quartile-range of binned 
 %       auto-detected clear-sky samples. (See METEOQC.CLEARSKY_TESTS).
 %
-% TODO:   Seasonal UTC-offset detection and correction
+% TODO:   
+%         FIX for non-uniform timesteps! (e.g. interval = 'i')
+%         Seasonal UTC-offset detection and correction
 %         Shaded-sensor detection and correction
 %         Integration of RBE / bestimate
 %         Intra-hour resampling, for analysis of high-freq. modeling uncertainty 
@@ -37,6 +39,25 @@ function MD = completemeteodata(MD)
 %   CHECKUTCOFFSET, METEOQC.TEST, METEODATA.REFRESH, GETSUNPOS
 
     opt = MD.options;
+    
+    if MD.interval == 'i'
+        warning('COMPLETEMETEODATA does not yet work for non-uniform timesteps');
+        try
+          MD.interval = 'c';
+          t0 = MD.t;
+          dt0 = MD.timestep;
+          [MD.t,MD.timestep,idx] = parsetime(MD.t,'-gridded');
+          MD.t = MD.t(idx);
+          % MD.data.Properties.TimeStep = dt;
+        catch ERR
+          error('... told you, COMPLETEMETEODATA does not yet work for non-uniform timesteps');
+        end
+        MD = completemeteodata(MD);
+        MD.interval = 'i';
+        MD.t = t0;
+        MD.timestep = dt0;
+        return;
+    end
 
     printif = @(varargin) opt.verbose && fprintf(varargin{:});
     

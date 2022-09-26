@@ -166,7 +166,8 @@ methods (Static = true)
             if ~full
                 idx = randperm(numel(idx),min(NPTS,numel(idx)));
             end
-            t = parsetime(MD.t(idx),'interval',{MD.interval,'c'},'step',MD.timestep);
+            % t = parsetime(MD.t(idx),'interval',{MD.interval,'c'},'step',MD.timestep);
+            t = MD.t(idx);
             [R.sunaz, R.sunel,~,ST,R.declination] = pvlmod_ephemeris(t,MD.location,1e5,10);
             R.hourangle = (ST - 12)*15;
             
@@ -1118,7 +1119,7 @@ methods
                 suffix = sprintf(' (from %0.1f%% subset)',Nf/N*100);
             end
             
-            nbad = sum(F > 0,1) & filter;
+            nbad = sum(F > 0  & filter,1);
             if all(nbad == 0)
                 if ~short, msg{j} = {[FLD{j} ': no values flagged, 100% available' suffix]}; end
                 continue; 
@@ -1130,7 +1131,7 @@ methods
                 available = bitget(F(:,k),NA_bit) == 0 & filter;
                 a = nnz(available);
                 
-                nbad = sum(F > 0,1) & filter;
+                nbad(k) = nnz((F(:,k) > 0) & available);
             
                 if M == 1, ID = FLD{j}; else, ID = sprintf('%s.%d',FLD{j},k); end
                 if nbad(k) == 0

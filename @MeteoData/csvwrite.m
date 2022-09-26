@@ -45,9 +45,9 @@ function varargout = csvwrite(MD,varargin)
     
     opt.comments = cellstr(opt.comments);
 
-    Loc = parselocation(MD.location,'-soft','-useweb'); 
+    Loc = parselocation(MD.location,'-soft','-useweb');
     dt = MD.timestep;
-    MD.interval = 'b';
+    if MD.interval ~= 'i', MD.interval = 'b'; end
     t = MD.t;
 
     Nt = numel(t);
@@ -111,8 +111,13 @@ function varargout = csvwrite(MD,varargin)
 	printcomment(sprintf('altitude: %0.1f', Loc.altitude));
     printcomment(['timezone: ', Loc.TimeZone]);
     printcomment('');
-    printcomment(sprintf('period: %sZ/%sZ',timestamps(1,:),datestr(t(end)+dt,'yyyy-mm-ddTHH:MM:SS')));
-	printcomment(['summarization: ','yyyy-mm-ddTHH:MM:SS[Z/' isoduration(dt) ']']);
+    if MD.interval == 'i'
+        printcomment(sprintf('period: %sZ/%sZ',timestamps(1,:),datestr(t(end),'yyyy-mm-ddTHH:MM:SS')));
+        printcomment('summarization: yyyy-mm-ddTHH:MM:SS[Z] (instantaneous)');
+    else
+        printcomment(sprintf('period: %sZ/%sZ',timestamps(1,:),datestr(t(end)+dt,'yyyy-mm-ddTHH:MM:SS')));
+        printcomment(['summarization: ','yyyy-mm-ddTHH:MM:SS[Z/' isoduration(dt) ']']);
+    end
 	printcomment('');
     if ~isempty(opt.comments)
         for j = 1:numel(opt.comments), printcomment(opt.comments{j}); end
@@ -123,7 +128,9 @@ function varargout = csvwrite(MD,varargin)
     
     if nargout > 0, varargout{1} = filename; end
     
-    if isempty(opt.sensorsfile), opt.sensorsfile = fullfile(opt.path,[Loc.name '.sensors']); end
+    if isequal(opt.sensorsfile,1)
+        opt.sensorsfile = fullfile(opt.path,[Loc.name '.sensors']); 
+    end
     if ~isequal(opt.sensorsfile,0)
         opt.sensorsfile = uniquefilename(opt.sensorsfile);
         WriteYaml(opt.sensorsfile,struct(MD.sensors),0);

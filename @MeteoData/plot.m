@@ -72,7 +72,12 @@ function shadingplot(ax,MD,varargin)
 
     [xx,yy] = ndgrid(x,y); 
     gaps = isnan(Z);
-    G = scatteredInterpolant(xx(~gaps),yy(~gaps),Z(~gaps),'linear','none');
+    if nnz(~gaps) < 3
+        warning('No valid data to plot');
+        G = @(x,y) NaN(size(x));
+    else
+        G = scatteredInterpolant(xx(~gaps),yy(~gaps),Z(~gaps),'linear','none');
+    end
     
     [~,d] = solarposition.hor2eq(MD.location.latitude,xx(gaps),yy(gaps),'Eq0');
     gaps(gaps) = abs(d) < 23.5;
@@ -116,6 +121,7 @@ function kxkyscatter(ax,MD,type,varargin)
     opt.gridcolor = [1,1,1]*0.9;
     
     opt.maxpts = 50e3;
+    opt.discardflags = {'^','BSRN_rare_hi','BSRN_rare_lo','CIE_out','IQR'};
     
     opt = getpairedoptions(varargin,opt,'restchk');
     
@@ -128,7 +134,7 @@ function kxkyscatter(ax,MD,type,varargin)
     axis(ax,'square');
     axis(ax,'equal'); 
     grid(ax,'on');
-
+    
     switch type
     case 'ktrd'
         xticks(opt.ktgrid);
@@ -142,6 +148,7 @@ function kxkyscatter(ax,MD,type,varargin)
         axis([opt.ktlim,opt.rdlim]);
 
         if ~isempty(MD)
+            MD = meteoQC.flagged2nan(MD,opt.discardflags,{'kt','kd'});
             x = MD.data.kt;
             y = MD.data.kd./MD.data.kt;
         end
@@ -160,6 +167,7 @@ function kxkyscatter(ax,MD,type,varargin)
         plotktgrid(ax,opt.ktgrid,opt.gridcolor);
 
         if ~isempty(MD)
+            % MD = meteoQC.flagged2nan(MD,opt.discardflags,{'kn','kd'});
             x = MD.data.kn;
             y = MD.data.kd;
         end
@@ -183,11 +191,11 @@ function kxkyscatter(ax,MD,type,varargin)
         f(f) = rand(n,1) < opt.maxpts/n;
     end
     x = x(f);
-    y = y(f);
-    flagged = flagged(f);
-    densityplot(x(~flagged),y(~flagged),3,'limits',[0 1.6 0 1.1]);
+    y = y(f);   
+    densityplot(x,y,3,'limits',[0 1.6 0 1.1]);
     
-     if opt.flagged      
+     if opt.flagged
+        flagged = flagged(f);
         scatter(x(flagged),y(flagged),1,'r');
      end
 end

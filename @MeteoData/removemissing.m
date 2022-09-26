@@ -7,7 +7,9 @@ function MD = removemissing(MD,fld,E,W,quiet)
 % FLD can be used to restrict the search to certain field(s).
 % QUIET = true supresses any warnings or dialogs.
 
-    if nargin < 2 || (isempty(fld) && ~iscell(fld)), fld = fieldnames(MD); 
+    if nargin < 2 || (isempty(fld) && ~iscell(fld))
+        fld = fieldnames(MD);
+        ix = 1:numel(fld);
     else
         [fld,ix] = parselist(fld,fieldnames(MD));
     end
@@ -77,15 +79,8 @@ function MD = removemissing(MD,fld,E,W,quiet)
             end
         end
 
-        if all(bad)
-            MD.data.(fld{j}) = [];
-            MD.data.Properties.CustomProperties.source{ix(j)} = [];
-            MD.flags.data.(fld{j}) = [];
-        elseif any(bad)  
-            MD.flags.flagsummary(fld{j},filter)
-            MD.data.(fld{j})(:,bad) = [];
-            MD.data.Properties.CustomProperties.source{ix(j)}(bad) = [];
-            MD.flags.data.(fld{j})(:,bad) = [];
+        if all(bad), MD = rmfield(MD,fld{j});
+        elseif any(bad), MD = rmsource(MD,src(bad));
         end
     end 
 end

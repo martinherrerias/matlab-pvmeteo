@@ -318,10 +318,9 @@ function [MD, t, Location] = readgeneric(data)
     % Convert date strings to DATETIME, check regularity, guess dt, and set interval-summarization
     % to center.
     [t,dt] = parsetime(cat(1,data.data{1}{:}),'TimeZone',UTC,'InputFormat',fmt,...
-        'interval',{data.params.interval,'c'});
+        'interval',data.params.interval);
     
     MD.interval = data.params.interval;
-    if MD.interval ~= 'i', MD.interval = 'c'; end 
     
     % Parse ISO 8601 interval duration PT[nH][nM][nS] -> minutes
     if ~isempty(period)

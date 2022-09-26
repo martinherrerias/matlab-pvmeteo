@@ -181,7 +181,8 @@ function [error,P0,Pb,msg] = checkUTCoffset(GHI,t,varargin)
         else
             GHI(~CS) = NaN;
             GHI = GHI(idx(d));
-            CSGHI = CSGHI(idx(d));
+            CSGHI = CSGHI(idx(d)); 
+            t = t(idx(d));
         end
     end
     
@@ -314,7 +315,7 @@ function hfig = offset_plot(t,x,y,lags,offset,c,lb,ub,P,dt,msg)
     plot(ax,t,circshift(x,-offset));
     ylabel(ax,'GHI, CSGHI (normalized)');
     legend(ax,'GHI','CSGHI','offset GHI','box','off');
-    xlim(ax,t(1) + [0,2/dt-1]);
+    xlim(ax,t(1) + [0,days(2)]);
     plotarrows(ax,'southwest');
 
     hold(ax2,'on');
