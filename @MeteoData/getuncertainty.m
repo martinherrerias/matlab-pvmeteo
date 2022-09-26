@@ -1,5 +1,6 @@
 function MD = getuncertainty(MD)
-% Estimate irradiance measurement uncertainties
+% MD = GETUNCERTAINTY(MD) - Estimate irradiance sensor measurement uncertainties
+% See also: METEOSENSOR, METEOSENSOR.UNCERTAINTY
 
     % Assume default sensors, if required
     MD = checksensors(MD,[],1);
@@ -8,6 +9,11 @@ function MD = getuncertainty(MD)
 
     types = unique(types(relevant));
     S = MD.sensors(relevant);
+    
+    % TODO: this should be a sensor type on its own!
+    hBNI = contains({S.type},'BNI') & contains({S.model},{'RSI','SPN1'});
+    [S(hBNI).type] = deal('hBNI');
+    [S(hBNI).zero_offset] = deal(0);
 
     [X,~,~,cols] = getbysource(MD,{S.ID});
     
@@ -21,7 +27,7 @@ function MD = getuncertainty(MD)
         end
         CSn = CSn.*MD.data.kd.*MD.data.ENI;
         
-        B = struct('BNI',Bn,'GHI',Bn+CSn,'DHI',CSn);
+        B = struct('BNI',Bn,'hBNI',Bn+CSn,'GHI',Bn+CSn,'DHI',CSn);
         if contains('GTI',types), B.GTI = B.GHI; end
         
         if contains('USW',types)
@@ -30,7 +36,7 @@ function MD = getuncertainty(MD)
             end
         end
     else
-        B = struct('BNI',[],'GHI',[],'DHI',[],'GTI',[],'USW',[]);
+        B = struct('BNI',[],'hBNI',[],'GHI',[],'DHI',[],'GTI',[],'USW',[]);
     end
     
     if isempty(MD.uncertainty), MD.uncertainty = table_ish(); end

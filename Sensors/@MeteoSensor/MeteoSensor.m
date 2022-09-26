@@ -291,7 +291,7 @@ methods
         end
     end
 
-    U = uncertainty(S,x,AOI,B,Ts)
+    [U,IAM] = uncertainty(S,x,AOI,B,Ts)
     
     function S = parselocations(S,varargin)
     % S = MeteoSensor.parselocations(S,Loc,Trck) 

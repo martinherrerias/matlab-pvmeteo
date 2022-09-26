@@ -33,7 +33,7 @@ function RES = RBE(MD,TPM,usedvar,varargin)
 
     opt.ndays = Inf;
     opt.mainmdl = 1;
-    opt.minP = 1e-12;
+    opt.minP = 1e-15;
     opt.resample = 1;
     opt.supervised = all(isfield(MD,{'kn','kd'}));
     % opt.method = 'bin';
@@ -582,13 +582,16 @@ function [Q,E] = getlikelyhood(Y,S,typ,kd,kn,ENI,sunel,sunaz,albedo,surftilt,sur
         
         switch fld{j}
         case 'GTI', continue; % already handled
+        case {'BNI','hBNI'}, b = G.BNI+G.CSn;            
         case 'GHI', b = G.BNI+G.CSn;
         case 'DHI', b = G.CSn;
         case 'USW', b = albedo*(G.BNI+G.CSn);
         end
-        u = uncertainty(S(useful),Y(useful),sunaz,sunel,b)/1.96;
-        iam = arrayfun(@(s) s.fIAM(max(0,90-sunel)),S(useful));
-        G_mdl = G.(fld{j}) - b.*(1-iam(:)').*sind(sunel);
+        [u,iam] = uncertainty(S(useful),Y(useful),sunaz,sunel,b);
+        u = u/1.96;
+        
+        % Correct for sensor IAM
+        G_mdl = G.(fld{j}).*iam;
     
         if ~isfield(typ,fld{j}) || strcmp(fld{j},'GTI'), continue; end
 
