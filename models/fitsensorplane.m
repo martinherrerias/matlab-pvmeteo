@@ -10,9 +10,11 @@ function [azm,tilt,calib,albedo,info] = fitsensorplane(GTI,DHI,BNI,ENI,sunel,sun
 %
 % TODO: find also sensor fIAM, shading factors, optimize Loc.albedo, detect GHI sensor properties
 % as well.
-
+    
     if nargin < 7, albedo = []; end
     knownalbedo = ~isempty(albedo) && isfinite(albedo);
+    
+    [arg,varargin] = getflagoptions(varargin,{'-plot'});
     
     n = size(GTI,1);
     validateattributes(GTI,{'numeric'},{'real','2d'});
@@ -35,7 +37,7 @@ function [azm,tilt,calib,albedo,info] = fitsensorplane(GTI,DHI,BNI,ENI,sunel,sun
     if knownalbedo && ~isscalar(albedo), albedo = albedo(filter); end
     
     Ns = size(GTI,2);
-    
+
     % [F1,F2,sF1,sF2,rF1F2,Sg] = pvlmod_perezcoeffs(BNI,DHI,ENI,sunel,varargin{:});
     [F1,F2] = pvlmod_perezcoeffs(BNI,DHI,ENI,sunel,varargin{:});
 
@@ -61,14 +63,14 @@ function [azm,tilt,calib,albedo,info] = fitsensorplane(GTI,DHI,BNI,ENI,sunel,sun
     
     % Define a space over [tilt,azimuth] for each sensor
     x0 = seedvalues(GTI,S,CSn,HBp,BNI,ISOh,ALBc*albedo);
-    lb = repmat([0,-180],Ns,1);
-    ub = repmat([90,180],Ns,1);
+    x0 = x0(:)';
     
-    x0 = x0(:)'; lb = lb(:)'; ub = ub(:)';
+    lb = -Inf(1,2*Ns);
+    ub = Inf(1,2*Ns);
         
     calib = ones(1,Ns);
     opt = optimset('display','off','maxfunevals',1000,'TolX',sind(0.1),'TolFun',1e-4);
-    
+
     if knownalbedo
         ALBc = ALBc.*albedo;
         costfcn = @(x) GTI_error(x(1:Ns),x(Ns+1:2*Ns),1);
@@ -78,14 +80,66 @@ function [azm,tilt,calib,albedo,info] = fitsensorplane(GTI,DHI,BNI,ENI,sunel,sun
         ub = [ub,1];
         costfcn = @(x) GTI_error(x(1:Ns),x(Ns+1:2*Ns),x(end));
     end
-
-    [x,info.resnorm,info.resid,info.exitflag,info.output,info.lambda,info.J] = ...
-            lsqnonlin(costfcn,x0,lb,ub,opt);
+    
+    XGROUPS = 50; % rough DF of Perez model... doesn't matter too much
+    n = size(GTI,1);
+    gidx = discretize(rand(n,1),XGROUPS);
+    
+    [x,info.resnorm,info.resid,info.exitflag,info.output,info.lambda,info.J] = lsqnonlin(@(x) splitapply(@std,costfcn(x),gidx),x0,lb,ub,opt);
     info.confidence_intervals = nlparci(x,info.resid,'jacobian',info.J);
     
     tilt = x(1:Ns);
     azm = x(Ns+1:2*Ns);
+
+    badconv = tilt < 0;
+    tilt(badconv) = -tilt(badconv);
+    azm(badconv) = azm(badconv)+180;
+    
     if ~knownalbedo, albedo = x(end); end
+    
+    % Refine 2nd order finite differences
+    DELTA_MIN = [2,45];
+    delta = min(max(diff(info.confidence_intervals(1:2*Ns,:),1,2)/2,DELTA_MIN(1)),DELTA_MIN(2));
+    delta = reshape(delta,[],2)';
+    
+    E = zeros(3,3,Ns);
+    for j = 1:3
+        for k = 1:3
+            z = tilt + (j-2)*delta(1,:);
+            y = azm + (k-2)*delta(2,:);
+            e = GTI_error(z,y,albedo);
+            E(j,k,:) = std(e,1);
+        end
+    end
+    delta(1,:) = delta(1,:)./sqrt(squeeze(diff(E(:,2,:),2,1)))';
+    delta(2,:) = delta(2,:)./sqrt(squeeze(diff(E(2,:,:),2,2)))';
+    delta(2,:) = min(delta(2,:),180);
+    
+    info.confidence_intervals = x(:) + [-1,1].*delta(:);
+ 
+    if arg.plot
+        [xx,yy] = ndgrid(linspace(-1,1,11),linspace(-1,1,11));
+        E = zeros(numel(xx),Ns);
+        for j = 1:numel(xx)
+            x = tilt + xx(j)*delta(1,:);
+            y = azm + yy(j)*delta(2,:);
+            e = GTI_error(x,y,albedo);
+            E(j,:) = std(e,1);
+        end
+        E = reshape(E,[size(xx),Ns]);
+
+        GUIfigure('fitsensorplane');
+        ax = arrayfun(@(j) subplot(1,Ns,j),1:Ns);
+        for k = 1:Ns
+            imagesc(ax(k),tilt(k) + xx(:,1)*delta(1,k),azm(k) + yy(1,:)*delta(2,k),E(:,:,k))
+            
+            xlabel(ax(k),'tilt (deg)')
+            ylabel(ax(k),'azimuth (deg)')
+            title(ax(k),sprintf('GTI_%d',k))
+            h = colorbar(ax(k));
+            h.Label.String = 'STD [W/m^2]';
+        end
+    end
 
     function E = GTI_error(surftilt,surfaz,albedo)
         U = sph2cartC(surfaz,90-surftilt);
@@ -102,7 +156,7 @@ function [azm,tilt,calib,albedo,info] = fitsensorplane(GTI,DHI,BNI,ENI,sunel,sun
         f = overcast & isfinite(GTIm) & isfinite(GTI);
         if ~any(f), calib = 1;
         else
-            calib = mean(GTIm(f),1)./mean(GTI(f),1);
+            calib = dot(GTIm,f)./dot(GTI,f);
         end
         
         E = double(ISO + CS + HB + ALB + BTI - GTI.*calib);
@@ -135,8 +189,8 @@ function orientation = seedvalues(GTI,S,CSn,HBp,BNI,ISOh,ALB)
     u0(:,u0(3,:) < 0) = [];
     n_starts = size(u0,2);
     
-    opt_rough = optimset('TolX',sind(1),'TolFun',1);
-    opt_fine = optimset('TolX',sind(0.1),'TolFun',1e-2);
+    opt_rough = optimset('TolX',sind(1),'TolFun',1,'MaxFunEvals',1000);
+    opt_fine = optimset('TolX',sind(0.1),'TolFun',1e-2,'MaxFunEvals',1000);
 
     for j = Ns:-1:1
         c = double(GTI(:,j) - D); % GTI - D
