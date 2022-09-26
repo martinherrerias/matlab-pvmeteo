@@ -13,9 +13,9 @@ function [MD,B,U] = bestimate(MD,varargin)
 %   + Account for uncertainty in closure equation for non-finite (downsampled) intervals!
 
     opt.discardflags = {'^','BSRN_rare_hi','BSRN_rare_lo','CIE_out','IQR'};
-    opt.fillgaps = true;
+    opt.fillgaps = false;
     opt = getpairedoptions(varargin,opt,'restchk');
-    opt.discardflags = parselist(opt.discardflags,MD.flags.flags);
+    opt.discardflags = parselist(opt.discardflags,MD.flags.flags,'-soft');
 
     MD = getsunpos(MD,0,0);
     MD = refresh(MD);
@@ -51,6 +51,10 @@ function MD = firstguess(MD,discardflags,fillgaps)
 % condition GHI = DHI + BNI·cosZ while maximizing the log-likelyhood:
 %
 %       L = ln{P(G0-GHI)·P(B0 - BNI)·P(D0-DHI)}
+
+    THRESH.kn = [0,1];
+    THRESH.kt = [0,1.6]; % BSRN abs
+    THRESH.kd = [0,0.99]; % BSRN abs
 
     assert(isfield(MD,'GHI') || all(isfield(MD,{'BNI','DHI'})),'GHI source required');
 
@@ -92,7 +96,7 @@ function MD = firstguess(MD,discardflags,fillgaps)
         
     kt = S.GHI./EHI;
     kt(MD.dark) = NaN;
-    kt(kt > 1.6) = NaN;
+    kt(kt > THRESH.kt(2)) = NaN;
 
     if ~all(isfield(S,{'GHI','DHI','BNI'}))
     % Get everything from GHI, using DIRINT model for diffuse fraction
@@ -123,10 +127,10 @@ function MD = firstguess(MD,discardflags,fillgaps)
         kn = S.BNI./MD.data.ENI;
     end
             
-    kt(kt > 1.6) = NaN;
-    kn(kn > 1) = NaN;
-    kd(kd > 0.95) = NaN;
-    kd(kd < 0.05) = NaN;
+    kt(kt > THRESH.kt(2)) = NaN;
+    kn(kn > THRESH.kn(2)) = NaN;
+    kd(kd > THRESH.kd(2)) = NaN;
+    kd(kd < THRESH.kd(1)) = NaN;
     K = [kt,kd,kn];
     K(MD.dark,:) = NaN;
     K(MD.data.sunel < 0) = NaN;
@@ -278,7 +282,7 @@ end
 function [S,U] = DHIfromRest(S,U,cosZ)
 % Get DHI from GHI and BNI, clip to DHI > 0.1·GHI
 
-    MIN_KD = 0.1;
+    MIN_RD = 0.08;
 
     if ~isfield(S,'DHI'), missing = true(size(S.GHI)); S.DHI = zeros(0,1);
     else, missing = ~isfinite(S.DHI);
@@ -288,8 +292,8 @@ function [S,U] = DHIfromRest(S,U,cosZ)
     % Get BNI from GHI and DHI...
     DHI = S.GHI - S.BNI.*cosZ;
     
-    toclip = DHI < S.GHI*MIN_KD;
-    DHI(toclip) = S.GHI(toclip)*MIN_KD;
+    toclip = DHI < S.GHI*MIN_RD;
+    DHI(toclip) = S.GHI(toclip)*MIN_RD;
     
     missing = missing & isfinite(DHI);
     toclip = toclip & missing;
