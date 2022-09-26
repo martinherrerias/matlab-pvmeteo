@@ -72,7 +72,9 @@ function varargout = radiance_igawa(MD,SP,SkyRegions,model)
 %
 % See also: PVLMOD_HAYDAVIES, POAIRRADIANCE
 
-    if nargin == 1, model = MD;  % allow dummy call for initialization of LzEd
+    if nargin == 0, test(); return; end
+
+    if nargin == 1 && ischar(MD), model = MD;  % allow dummy call for initialization of LzEd
     elseif nargin < 4 || isempty(model), model = '2004';
     end
     assert(ischar(model) && any(strcmp(model,{'2002','2004'})),'Unknown model');
@@ -81,11 +83,15 @@ function varargout = radiance_igawa(MD,SP,SkyRegions,model)
     % Also grid of integration points Xs with quadrature weights Ws.
     [LzEd,Xs,Ws] = getLzEd(model);
     
-    if nargin <= 1, return; end
-    
-    narginchk(2,4);
+    if isa(MD,'MeteoData')
+        [MD,SP] = MD.legacy();
+        narginchk(1,4);
+    else
+        if nargin <= 1, return; end
+        narginchk(2,4);
+    end
     % tol = getSimOption('RelTol');
-        
+ 
     parsestruct(MD,{'DHI','GHI','ENI'},'opt',{'AMr','CSGHI','CSDHI'},'-n','-r','-v','-e');
     parsestruct(SP,{'El','Az'},'-n','-f','-v','size',[numel(MD.GHI),1]);
     Nt = numel(MD.GHI);
@@ -96,8 +102,8 @@ function varargout = radiance_igawa(MD,SP,SkyRegions,model)
     useful = MD.GHI > 0 & MD.DHI > 0 & SP.El >= 0;
     dark = SP.El < 0 | MD.GHI <= 0 | MD.DHI <= 0;
     m = MD.AMr(useful);
-    sunel = SP.El(useful);
-    sunaz = 90 - SP.Az(useful); % E2N
+    sunel = single(SP.El(useful));
+    sunaz = single(90 - SP.Az(useful)); % E2N
 
 %     % MHA: using pre-calculated clear-sky GHI!
 %     if isfield(MD,'CSGHI')
@@ -128,7 +134,7 @@ function varargout = radiance_igawa(MD,SP,SkyRegions,model)
 %     end
     Cle = (1-Ce)./(1-Ces);    % cloudless index
     Si = Kc+sqrt(Cle);        % Sky index
-    Si = max(0,min(Si,2.0));
+    Si = max(0,min(single(Si),2.0));
     
     R = MD.DHI(useful).*LzEd(Si,sunel)./relative_radiance(Si,90,90-sunel,model);
 
@@ -177,9 +183,9 @@ function varargout = radiance_igawa(MD,SP,SkyRegions,model)
     end  
     D_sky(dark,:) = 0;
     D_sun(dark,:) = 0;
-
+    
     % Divide time-steps into chunks, to avoid memory issues
-    Nchunks = ceil(Nt*Nq/maxarraysize('single')*4);
+    Nchunks = ceil(Nt*Nq/maxarraysize('single')*8);
     ChunkSize = ceil(Nt/Nchunks);
     for k = 1:Nchunks
         idx = false(Nt,1);
@@ -194,16 +200,18 @@ function varargout = radiance_igawa(MD,SP,SkyRegions,model)
                 
         % Calculate near-scattering (circumsolar region) components
         if ~isempty(SkyRegions.cs)
+            
+            % Dsun will be substracted from the background Dsky, and we don't want a negative
+            % step at the edge of the last CS ring...
+            Le_min = min(Le,[],2,'omitnan');
+            
             inothers = false(size(zz));
-            for j = 1:Ncs % from the smallest radius up...
-                % ini = points inside ring (i), but not in ring (i-1)
+            for j = 1:Ncs
                 ini = zz <= SkyRegions.cs(j) & ~inothers;
                 if any(ini,'all')
-                    inothers = inothers | ini;
-                    D_sun(idx,j) = min(Le./ini,[],2,'omitnan');
-                    % D_sun(idx,j) = sum(Sc.*inj,2)./sum(inj,2);
-                    % D_sun(idx,j) = sum(Sc.*sin(gg).*inj,2)./sum(sin(gg).*inj,2);
+                    D_sun(idx,j) = max(0,min(Le./ini,[],2,'omitnan') - Le_min);
                     Le = Le - ini.*D_sun(idx,j);
+                    inothers(ini) = true;
                 else
                     D_sun(idx,j) = 0;
                 end
@@ -255,16 +263,16 @@ function Le = radiance(az,el,sunel,sunaz,Si,R,model,filter)
 %   Meant to be passed as a function handle L = @(AZ,EL,FILTER) tied to a given set of weather
 %   conditions SUNEL,SUNAZ,Si,R.
 
-    sz = compatiblesize(sunel,sunaz,Si,R,az,el,'-size');
-    assert(prod(sz) < maxarraysize('single')/4,...
-        'Required %s array would exceed available memory',mat2str(sz));
-    
     if nargin > 7 && ~isempty(filter)
         sunel = sunel(filter);
         sunaz = sunaz(filter);
         Si = Si(filter);
         R = R(filter);
     end
+    
+    sz = compatiblesize(sunel,sunaz,Si,R,az,el,'-size');
+    assert(prod(sz) < maxarraysize('single')/4,...
+        'Required %s array would exceed available memory',mat2str(sz));
 
     % Get angle from elements to sun
     zeta = sph2cartV(sunaz,sunel)*sph2cartV(az,el)';
@@ -382,6 +390,8 @@ function [LzEd,Xs,Ws] = getLzEd(model)
     fprintf('Initializing radiance_igawa...\n');
         
     [Xs,Ws] = sphquadraturepoints(1/TOL);
+    assert(abs(sum(Ws)/(2*pi)-1) < TOL);
+    
     gg = atan2d(Xs(:,3),hypot(Xs(:,1),Xs(:,2)));
     Nq = numel(gg);
     
@@ -413,4 +423,59 @@ function [LzEd,Xs,Ws] = getLzEd(model)
     save(file,'LzEd','Xs','Ws');
     
     % contourf(LzEd.GridVectors{1},LzEd.GridVectors{2}*180/pi,LzEd.Values'); colorbar();
+end
+
+function test()
+
+    LzEd = getLzEd('2004');
+    N = 512;
+        
+    prj = polyprojector('ortographic','tol',1e-6);
+    [xx,yy] = meshgrid(linspace(-1,1,N),linspace(-1,1,N));
+    V = prj.inv([xx(:),yy(:)]')';
+    V(V(3,:) < max(0,prj.cX),:) = NaN;
+    gg = atan2d(V(:,3),hypot(V(:,1),V(:,2)));   
+
+    fh = GUIfigure('radiance_igawa_test','-silent');
+    try close(fh); end
+    
+    GUIfigure('radiance_igawa_test','radiance_igawa test','2:1'); clf();
+    ax = arrayfun(@(j) subplot(1,2,j),1:2);
+    
+    h = imagesc(ax(1),xx(1,1:N),yy(1:N,1),rand(N),'AlphaData',~isnan(reshape(V(:,3),[N,N])));
+    axis(ax(1),'equal');
+    set(ax(1),'ydir','normal');
+    % set(ax(1),'xdir','reverse');
+    %caxis(ax(1),[0,1.5]);
+    colorbar(ax(1));
+    
+    ax(1).Visible = 'off';
+    ax(2).Visible = 'off';
+    ax(2).Position = ax(2).Position*[1 0 0 0; 0 1 0 0.1; 0 0 1 0; 0 0 0 0.8]';
+    
+    CTL = plotcontrols({'popupmenu','slider','slider','slider','text'},...
+                 {'model','sunel','sunaz','Si','output'},...
+                 {{'2004','2002'},[0,90],[-180,180],[0,2.1],[]},...
+                 {'2004',45,120,1.2,'foo'},@update,...
+                 'position',ax(2).Position,'-skipupdate','-smooth');
+             
+    LzEd = [];
+    Le = [];
+    update('2004',45,120,1.2)
+
+    function update(model,sunel,sunaz,Si,~,caller,~)
+        if isempty(LzEd) || strcmp(caller.Style,'popupmenu')
+            [LzEd,~] = getLzEd(model);
+            switch model
+                case '2002', CTL(4).Max = 2.2;
+                case '2004', CTL(4).Max = 2.0; CTL(4).Value = min(CTL(4).Value,2.0); 
+            end
+        end
+        
+        zz = acosd(V*sph2cartV(90-sunaz,sunel)');
+        Le = LzEd(Si,sunel)*relative_radiance(Si,gg,zz,model)./relative_radiance(Si,90,90-sunel',model);
+        h.CData(:) = Le;
+        
+        CTL(5).String = sprintf('sum = %0.3f',nanmean(Le)*pi);
+    end
 end
