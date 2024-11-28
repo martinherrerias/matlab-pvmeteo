@@ -138,7 +138,7 @@ function [KD,KN,xkd,xkn] = reverse_perez(surftilt,surfaz,GTI,ENI,sunel,sunaz,var
     A = AMr.*cz.^2.*(F1c(2,:,:).*GF{1} + F2c(2,:,:).*GF{2});
     C = cz.*((F1c(1,:,:) + z.*F1c(3,:,:)).*GF{1} + (F2c(1,:,:) + z.*F2c(3,:,:)).*GF{2} + GF{3});
     B = a + gnd.*cz;
-    Gc = GTI./ENI;
+    Gc = repmat(GTI./ENI,1,1,size(A,3));
     
     BC = C + B.*lambda;
     overcast = (A == 0);
@@ -170,8 +170,8 @@ function [KD,KN,xkd,xkn] = reverse_perez(surftilt,surfaz,GTI,ENI,sunel,sunaz,var
         
         xkd = cat(3,xkd{:});
         xkn = cat(3,xkn{:});
-        xkn = permute(xkn,[3,2,1]);
-        xkd = permute(xkd,[3,2,1]);
+        xkn = permute(xkn,[1,3,2]);
+        xkd = permute(xkd,[1,3,2]);
     end
 
     KD = cat(3,KD{:});
@@ -189,16 +189,29 @@ function [KD,KN,xkd,xkn] = reverse_perez(surftilt,surfaz,GTI,ENI,sunel,sunaz,var
             xkn(j) = mean(KN(j,:,idx(j)),'omitnan');
         end
         
-        x0 = double([xkd;xkn]);
-        % x = lsqnonlin(@(x) forwardmodel(x(1:N),x(N+1:end)).*ENI - GTI,x0,zeros(2*N,1),ones(2*N,1));
-        x = fminsearch(@(x) mean((forwardmodel(x(1:N),x(N+1:end)).*ENI - GTI).^2,1:2),x0);
-        xkd = x(1:N);
-        xkn = x(N+1:end);
+        
+        f = all(isfinite(forwardmodel(xkd,xkn).*ENI - GTI),2);
+        
+        x0 = double([xkd(f);xkn(f)]);
+        n = nnz(f);
+        
+        J = sparse(repmat(1:n*M,2,1),repmat(1:n,1,M) + [1;n],1,M*n,2*n);
+        opt = optimset('JacobPattern',J,'display','none');
+        
+        x = lsqnonlin(@mdlerr,x0,zeros(2*n,1),ones(2*n,1),opt);
+        % x = fminsearch(@(x) mean((forwardmodel(x(1:N),x(N+1:end)).*ENI - GTI).^2,1:2),x0);
+        xkd = revertfilter(x(1:n),f);
+        xkn = revertfilter(x(n+1:end),f);
     end
     
     KD = permute(KD,[3,2,1]);
     KN = permute(KN,[3,2,1]);
     
+    function y = mdlerr(x)
+        y = forwardmodel(revertfilter(x(1:n),f),revertfilter(x(n+1:end),f)).*ENI - GTI;
+        y = double(y(f,:));
+        % y(~isfinite(x)) = 1000;
+    end
     
     function kp = forwardmodel(kd,kn)
         

@@ -31,7 +31,7 @@ function [Kd,Kn,mdl] = diffuse_fraction(varargin)
 %       available arguments, with priority for the last models of the list above.
 %
 % Output:   
-%   Kd - array of diffuse fraction values (Kd = DHI / GHI)
+%   Rd - array of diffuse fraction values (Kd = DHI / GHI)
 %   Kn - array of direct clearness indices (Kn = DNI / GHI)
 %
 % Sources: 
@@ -75,7 +75,7 @@ function [Kd,Kn,mdl] = diffuse_fraction(varargin)
     
     model = [];
     if ischar(varargin{end}) 
-        if ~contains(lower(varargin{end}),{'','best','auto'})
+        if ~ismember(lower(varargin{end}),{'','best','auto'})
         % Explicit model request
             [~,ic] = parselist(varargin{end},{MDL.name},'model');
             model = MDL(ic);

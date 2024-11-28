@@ -1,15 +1,33 @@
-function varargout = diffuseIAM(fIAM,tilt)
-% [ISO,ALB,HB] = DIFFUSEIAM(FIAM) - Integrate IAM function under an isotropic radiance & flat
+function varargout = diffuseIAM(fIAM,tilt,varargin)
+% [ISO,ALB,HB,CS] = DIFFUSEIAM(FIAM) - Integrate IAM function under an isotropic radiance & flat
 %   terrain assumption, returning function handles for the tilted components:
 %
-%   ISO(t) - Isotropic component IAM as a function of surface tilt t. Use ISO(t+a) to consider
-%       infinite-row shading with shade-free angle a.
-%   ALB(t) - Albedo component IAM as a function of surface tilt t
-%   HB(t) - Horizon-brightening component IAM as a function of surface tilt t
+% INPUT:
+%   FIAM - function handle, parsed by CHECKIAM.
+% OUTPUT:
+%   ISO(T) - Isotropic component IAM as a function of surface tilt T. Use ISO(T+A) to consider
+%       infinite-row shading with shade-free angle A.
+%   ALB(T) - Albedo component IAM as a function of surface tilt T
+%   HB(T) - Horizon-brightening component IAM as a function of surface tilt T
+%   CS(IA,R) - Approx. circumsolar component IAM, as a function of incidence angle IA, and
+%       and circumsolar radius R.*
 %
-%   TODO: integral2 crashes with discontinuous functions, e.g. checkIAM('hcpv')
+%       (*) NOTE: shading by the horizon is not considered for CS, only the effect of clipping
+%           by the surface plane.
 %
-% See also: CHECKIAM
+% [ISO,ALB,HB,CS] = DIFFUSEIAM(FIAM,TILT,IA,R) - return values for specific surface TILT, solar
+%   incidence angle IA, and circumsolar radius R.
+%
+% INPUT: 
+%   TILT,IA - singleton-expansion-compatible arrays of surface tilt angle(s) and solar incident 
+%       angle(s). The latter can be omitted if CS is not required. 
+%   R - scalar, circumsolar radius. Default = 25.
+%
+% OUTPUT: ISO, ALB, HB, CS will be numerical arrays, evaluated at the specific angles.
+%
+% TODO: integral2 crashes with discontinuous functions, e.g. checkIAM('hcpv')
+%
+% See also: CHECKIAM, CIRCUMSOLARIAM
 
     DZ = 1.0; % degrees, resolution of interpolation structure for f.iso,...
     
@@ -17,7 +35,6 @@ function varargout = diffuseIAM(fIAM,tilt)
 
     df = @(x,z) cos(x).*cos(z).*fIAM(acosd(cos(x).*cos(z)));    % cos(ia)·fIAM(ia)
     lineIAM = @(z) integral(@(x) df(x,z),0,pi/2)/cos(z);
-
     
     if nargin < 2 || numel(tilt) > 2*(90/DZ)
     % ... pre-calculate an interpolation set, for performance
@@ -44,6 +61,8 @@ function varargout = diffuseIAM(fIAM,tilt)
         hb = interp1(zz,iam_hb,(90 - tilt)*pi/180);  
     end
     varargout = {iso,alb,hb};
+    
+    if nargout > 3, varargout{4} = circumsolarIAM(fIAM,varargin{:}); end
     
     function r = wedgeIAM(a,b)
     % Equivalent to:

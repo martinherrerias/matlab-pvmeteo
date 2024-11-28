@@ -193,7 +193,7 @@ function RES = RBE(MD,TPM,usedvar,varargin)
 
             valid = isfinite(Y(t,:));
             ny = nnz(valid);
-            
+                        
             if opt.benchmark && ((opt.plot && ny > 0) || (ny == 1))
             % Benchmark for a single sensor: intersection of reverse-Perez and separation model
             
@@ -241,8 +241,10 @@ function RES = RBE(MD,TPM,usedvar,varargin)
                 else
                     Rs = R; 
                 end
-                
+                                
                 RES.stats{t} = Rs.stats();
+                RES.stats{t}.norm = R.lastnorm;
+                
                 if opt.supervised
                     RES.PIT(t,1) = Rs.PIT(MD.kn(t),1);
                     RES.PIT(t,2) = Rs.PIT(MD.kd(t),2);

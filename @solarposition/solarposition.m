@@ -440,6 +440,30 @@ function newaz = fixazimuth(az,orgconv,endconv,lat)
     end
 end
 
+function C = cardinal(az,tol)
+% C = CARDINAL(AZ,[TOL]) - Return a cell array of (tertiary inter-) cardinal directions for
+%   azimuth angles AZ (N2E convention).
+%
+% EXAMPLE:
+%   az = 0:360/16:359;
+%   plothalfdome();
+%   text(sind(az)*1.1,cosd(az)*1.1,solarposition.cardinal(az));
+    
+    if nargin < 2, tol = 360/64; end
+    validateattributes(tol,'numeric',{'scalar','real','positive','<=',360/64});
+    
+   L = {'S' 'SbW' 'SSW' 'SWbS' 'SW' 'SWbW' 'WSW' 'WbS' ...
+        'W' 'WbN' 'WNW' 'NWbW' 'NW' 'NWbN' 'NNW' 'NbW' ...
+        'N' 'NbE' 'NNE' 'NEbN' 'NE' 'NEbE' 'ENE' 'EbN' ...
+        'E' 'EbS' 'ESE' 'SEbE' 'SE' 'SEbS' 'SSE' 'SbE'};
+   az = solarposition.fixtoplusminus180(az);
+   [match,idx] = ismembertol(az,-180:360/32:180-tol/2,tol,'datascale',1);
+   
+   C = cell(size(az));
+   C(match) = L(idx(match));
+   C(~match) = arrayfun(@(x) num2str(x,'%0.0f°'),az(~match),'unif',0);
+end
+
 function [az,el,w,d,T] = sunposgrid(lat,varargin)
 % [AZ,EL,W,D,T] = SUNPOSGRID(LAT,LATTICE) - Generates a triangular grid of solar-positions 
 %   for latitude LAT, evenly spaced by a given LATTICE.

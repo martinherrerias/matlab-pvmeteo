@@ -11,7 +11,7 @@ function varargout = plot(MD,type,varargin)
     if nargin < 2, type = 'ktrd'; end
     
     TYPES = {'ktrd','kt[ -_]?.d|.d[ -_]?kt';
-             'knkd','kn[ -_]?.d|.d[ -_]?kn';
+             'knkd','kn[ -_]?.d|.d[ -_]?kn'; 
              'shading','shade|shading';
              'heatmap','heat.?map'};
              % 'series','series'};
@@ -117,8 +117,10 @@ function kxkyscatter(ax,MD,type,varargin)
     opt.rdgrid = 0:0.1:1;
     opt.kdgrid = 0:0.1:0.8;
     
-    opt.auxcolor = [1 0.7 1]; % [1 0.5 0.5];
-    opt.gridcolor = [1,1,1]*0.9;
+    opt.auxcolor = [1 0.7 1];     % e.g. separation models
+    opt.gridcolor = [1,1,1]*0.9; 
+    opt.flaggedcolor = 'r';
+    opt.size = 2;
     
     opt.maxpts = 50e3;
     opt.discardflags = {'^','BSRN_rare_hi','BSRN_rare_lo','CIE_out','IQR'};
@@ -145,7 +147,7 @@ function kxkyscatter(ax,MD,type,varargin)
 
         % plot(ax,[-1 2],[1 1],'k:',[0 0],[-1 2],'k:');
         plotkngrid(ax,opt.kngrid,opt.ktlim,opt.gridcolor);
-        axis([opt.ktlim,opt.rdlim]);
+        axis(ax,[opt.ktlim,opt.rdlim]);
 
         if ~isempty(MD)
             MD = meteoQC.flagged2nan(MD,opt.discardflags,{'kt','kd'});
@@ -154,16 +156,16 @@ function kxkyscatter(ax,MD,type,varargin)
         end
         
         if iscell(opt.sepmdl)
-           [kt,~,rd] = separationmodel(opt.sepmdl{:});
-           plot(kt,rd,'color',opt.auxcolor);
+           [kt,~,rd,mdl] = separationmodel(opt.sepmdl{:});
+           plot(ax,kt,rd,'color',opt.auxcolor,'DisplayName',mdl);
         end
 
     case 'knkd'
         xlbl = 'k_n';
         ylbl = 'k_d';
-        xticks(opt.kngrid);
-        yticks(opt.kdgrid);
-        axis([opt.knlim,opt.kdlim]);
+        xticks(ax,opt.kngrid);
+        yticks(ax,opt.kdgrid);
+        axis(ax,[opt.knlim,opt.kdlim]);
         plotktgrid(ax,opt.ktgrid,opt.gridcolor);
 
         if ~isempty(MD)
@@ -173,8 +175,8 @@ function kxkyscatter(ax,MD,type,varargin)
         end
         
         if iscell(opt.sepmdl)
-           [kt,kn,rd] = separationmodel(opt.sepmdl{:});
-           plot(kn,rd.*kt,'color',opt.auxcolor);
+           [kt,kn,rd,mdl] = separationmodel(opt.sepmdl{:});
+           plot(ax,kn,rd.*kt,'color',opt.auxcolor,'DisplayName',mdl);
         end
     end
     xlabel(ax,['$' xlbl '$'],'interpreter','latex','fontsize',14);
@@ -191,12 +193,15 @@ function kxkyscatter(ax,MD,type,varargin)
         f(f) = rand(n,1) < opt.maxpts/n;
     end
     x = x(f);
-    y = y(f);   
-    densityplot(x,y,3,'limits',[0 1.6 0 1.1]);
+    y = y(f);
+    if numel(opt.size) == numel(f), opt.size = opt.size(f); end
+    
+    densityplot(x,y,opt.size,'limits',[ax.XLim ax.YLim],'ax',ax);
     
      if opt.flagged
         flagged = flagged(f);
-        scatter(x(flagged),y(flagged),1,'r');
+        if numel(opt.size) == nnz(f), opt.size = opt.size(flagged); end
+        scatter(x(flagged),y(flagged),opt.size,opt.flaggedcolor);
      end
 end
 
@@ -208,7 +213,7 @@ function plotktgrid(ax,ktgrid,color,varargin)
     x(3,:) = NaN;
     y = [flipud(x(1:2,:));x(3,:)];
     
-    plot(ax,x(:),y(:),'color',color,varargin{:});
+    plot(ax,x(:),y(:),'color',color,varargin{:},'HandleVisibility','off');
 end
 
 function plotkngrid(ax,kngrid,ktlim,color,varargin)
@@ -220,15 +225,15 @@ function plotkngrid(ax,kngrid,ktlim,color,varargin)
     kt = (ktlim(2)-kngrid).*x + kngrid;
     rd = (kt - kngrid)./kt;
     
-    plot(ax,kt(:),rd(:),'color',color,varargin{:});
+    plot(ax,kt(:),rd(:),'color',color,varargin{:},'HandleVisibility','off');
 end
 
-function [kt,kn,rd] = separationmodel(varargin)
+function [kt,kn,rd,mdl] = separationmodel(varargin)
 
     warning_disabler = naptime('diffuse_fraction:defaultmdl'); %#ok<NASGU>
     
     kt = 0:0.01:1.6;
-    [rd,kn] = diffuse_fraction(kt,varargin{:});
+    [rd,kn,mdl] = diffuse_fraction(kt,varargin{:});
 
     if size(rd,1) > 1
         kt = compatiblesize(kt,rd);

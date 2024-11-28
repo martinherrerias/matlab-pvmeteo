@@ -110,6 +110,8 @@ function plot_F1F2(varargin)
             % [h{3}.XData] = deal(F1{4});
             % [h{3}.YData] = deal(F1{4});
         end
+        [h{1}.DisplayName] = deal('min','max',model,'lo','hi');
+        [h{2}.DisplayName] = deal('min','max',model,'lo','hi');
     %         for j = 1:3
     %             h{1}(j).YData = repelem(F1(:,j)',2);
     %             h{2}(j).YData = repelem(F2(:,j)',2);

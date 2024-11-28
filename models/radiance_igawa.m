@@ -1,4 +1,4 @@
-function varargout = radiance_igawa(MD,SP,SkyRegions,model)
+function varargout = radiance_igawa(MD,SP,SkyRegions,model,ikb)
 % LEA = RADIANCE_IGAWA(METEODATA,SUNPOS) - Estimate diffuse-radiance distribution function
 %    LEA(az,el) for the sky conditions and time-steps defined by METEODATA and SUNPOS, using
 %    the Igawa et al. (2004) radiance distribution model.
@@ -77,67 +77,36 @@ function varargout = radiance_igawa(MD,SP,SkyRegions,model)
     if nargin == 1 && ischar(MD), model = MD;  % allow dummy call for initialization of LzEd
     elseif nargin < 4 || isempty(model), model = '2004';
     end
+    if nargin < 5, ikb = false; end
     assert(ischar(model) && any(strcmp(model,{'2002','2004'})),'Unknown model');
     
     % Load normalization function LzEd(Si,Gs) [inverse of integral of relative radiance] 
     % Also grid of integration points Xs with quadrature weights Ws.
     [LzEd,Xs,Ws] = getLzEd(model);
+    Nq = numel(Ws);
     
     if isa(MD,'MeteoData')
         [MD,SP] = MD.legacy();
-        narginchk(1,4);
+        narginchk(1,5);
     else
         if nargin <= 1, return; end
-        narginchk(2,4);
+        narginchk(2,5);
     end
     % tol = getSimOption('RelTol');
  
     parsestruct(MD,{'DHI','GHI','ENI'},'opt',{'AMr','CSGHI','CSDHI'},'-n','-r','-v','-e');
     parsestruct(SP,{'El','Az'},'-n','-f','-v','size',[numel(MD.GHI),1]);
     Nt = numel(MD.GHI);
-    
-    % TODO: Should absolute air-mass be used??
-    if ~(isfield(MD,'AMr')), MD.AMr = pvl_relativeairmass(90-SP.El); end
 
     useful = MD.GHI > 0 & MD.DHI > 0 & SP.El >= 0;
     dark = SP.El < 0 | MD.GHI <= 0 | MD.DHI <= 0;
-    m = MD.AMr(useful);
     sunel = single(SP.El(useful));
     sunaz = single(90 - SP.Az(useful)); % E2N
-
-%     % MHA: using pre-calculated clear-sky GHI!
-%     if isfield(MD,'CSGHI')
-%         Kc = MD.GHI(useful)./MD.CSGHI(useful); 
-%     else
-        TL0 = 2.5;
-        Ee0 = MD.ENI(useful); % .*max(0,cosd(sunel)); 
-        Seeg = 0.84*Ee0./m.*exp(-0.027*TL0*m);      % ~ CSGHI
-        Kc = MD.GHI(useful)./Seeg;                  % Clear Sky Index
-%     end
-    Kc = max(0,min(1,Kc));
     
-    % Ce = Diffuse fraction, aka "Cloud Ratio"
-    Ce = MD.DHI(useful)./MD.GHI(useful);
-    overcast = Ce >= 1;
-    Ce(overcast) = 1;
-   
-%     % MHA: using pre-calculated clear-sky GHI!
-%     if all(isfield(MD,{'CSDHI','CSGHI'}))
-%         Ces = MD.CSDHI(useful)./MD.CSGHI(useful); 
-%     else
-            
-        % MHA: Igawa et al. use only points with sunel < 5°, so m < ~10.3 and Ces < 0.5
-        m = min(20,m);
-        % Kc(overcast) = min(0.5,Kc);
-        
-        Ces = (m.^(0:4))*[0.01299,0.07698,-0.003857,0.0001054,-0.000001031]';
-%     end
-    Cle = (1-Ce)./(1-Ces);    % cloudless index
-    Si = Kc+sqrt(Cle);        % Sky index
-    Si = max(0,min(single(Si),2.0));
+    Si = skyindex(MD,SP,useful,ikb);
     
     R = MD.DHI(useful).*LzEd(Si,sunel)./relative_radiance(Si,90,90-sunel,model);
-
+    
     if nargin < 3 || isempty(SkyRegions)
         R = revertfilter(R,useful,[],NaN); R(dark) = 0;
         Si = revertfilter(Si,useful,[],NaN); Si(dark) = 0;
@@ -150,109 +119,85 @@ function varargout = radiance_igawa(MD,SP,SkyRegions,model)
         end
         return
     end
-    clear Ces Cle Ce gs Kc m
-    
-    Nq = size(Xs,1);
-    gg = atan2d(Xs(:,3),hypot(Xs(:,1),Xs(:,2)))'; % altitude angle of quadrature points
-    
-    % Classify the Nq quadrature points into the SkyRegions they fall into:
-    prj = polyprojector('azim');
-    prj_reg = projectstatic(SkyRegions,prj);
-    prj_Xs = prj.r0*prj.fun(Xs(:,3)).*Xs(:,1:2)./hypot(Xs(:,1),Xs(:,2));
-
-    inothers = false(Nq,1);
-    B = false(Nq,SkyRegions.n.sky);
-    for j = 1:numel(SkyRegions.sky)
-        B(:,j) = ~inothers;
-        B(~inothers,j) = insidepolygon(prj_reg.sky{j},prj_Xs(~inothers,1),prj_Xs(~inothers,2));
-        inothers = inothers | B(:,j);
-    end
-    if SkyRegions.hasimplicit.sky && ~all(inothers)
-        B(:,end) = ~inothers;
-    elseif ~all(inothers)
-        warning('%d points outside all regions! re-normalizing',nnz(~inothers));
-        Ws = Ws.*(1+sum(Ws(~inothers))/sum(Ws));
-    end
     
     D_sky = NaN(Nt,SkyRegions.n.sky);
     if ~isempty(SkyRegions.cs)
-        Ncs = SkyRegions.n.solar;
-        D_sun = NaN(Nt,Ncs);
+        D_sun = NaN(Nt,SkyRegions.n.solar);
     else
         D_sun = zeros(Nt,0);
     end  
     D_sky(dark,:) = 0;
     D_sun(dark,:) = 0;
     
+    % Initialize DISCRETE_RADIANCE, return altitude angle of quadrature points
+    gg = discrete_radiance(Xs,Ws,SkyRegions);
+
     % Divide time-steps into chunks, to avoid memory issues
+    Nt = nnz(useful);
     Nchunks = ceil(Nt*Nq/maxarraysize('single')*8);
     ChunkSize = ceil(Nt/Nchunks);
     for k = 1:Nchunks
-        idx = false(Nt,1);
-        idx((k-1)*ChunkSize + 1 : min(k*ChunkSize,Nt)) = true;
-        idx = useful & idx;     % index for Nt-variables
-        ix = idx(useful);       % index for reduced variables
+        
+        ix = false(Nt,1);
+        ix((k-1)*ChunkSize + 1 : min(k*ChunkSize,Nt)) = true;
+        idx = useful;
+        idx(useful) = ix; % index for Nt-variables
+        
+%         idx = false(Nt,1);
+%         idx((k-1)*ChunkSize + 1 : min(k*ChunkSize,Nt)) = true;
+%         idx = useful & idx;     % index for Nt-variables
+%         ix = idx(useful);       % index for reduced variables
 
         % Angle between quadrature points and the sun, [nnz(idx),Nq] array
         zz = acosd(sph2cartV(sunaz(ix),sunel(ix))*Xs');
         
-        Le = relative_radiance(Si(ix),gg,zz,model).*R(ix); % [nnz(idx),Nq] array
-                
-        % Calculate near-scattering (circumsolar region) components
-        if ~isempty(SkyRegions.cs)
-            
-            % Dsun will be substracted from the background Dsky, and we don't want a negative
-            % step at the edge of the last CS ring...
-            Le_min = min(Le,[],2,'omitnan');
-            
-            inothers = false(size(zz));
-            for j = 1:Ncs
-                ini = zz <= SkyRegions.cs(j) & ~inothers;
-                if any(ini,'all')
-                    D_sun(idx,j) = max(0,min(Le./ini,[],2,'omitnan') - Le_min);
-                    Le = Le - ini.*D_sun(idx,j);
-                    inothers(ini) = true;
-                else
-                    D_sun(idx,j) = 0;
-                end
-            end
-        end
+        % Radiance at quadrature points
+    	Le = relative_radiance(Si(ix),gg',zz,model).*R(ix); % [nnz(idx),Nq] array
 
-        % [~,Sc,Gr] = relative_radiance(Si,gg,zz); % [Nt,Nq] arrays
-        % Sc = Sc.*R;
-        % Gr = Gr.*R; % normalize
-        % 
-        % % Calculate near-scattering (circumsolar region) components
-        % if ~isempty(SkyRegions.cs)
-        %     inothers = false(size(zz));
-        %     for j = 1:Ncs % from the smallest radius up...
-        %         % ini = points inside ring (i), but not in ring (i-1)
-        %         ini = zz <= SkyRegions.cs(j)*pi/180 & ~inothers;
-        %         inothers = inothers | ini;
-        %         D_sun(idx,j) = min(Sc./ini,[],2,'omitnan');
-        %         % D_sun(idx,j) = sum(Sc.*inj,2)./sum(inj,2);
-        %         % D_sun(idx,j) = sum(Sc.*sin(gg).*inj,2)./sum(sin(gg).*inj,2);
-        %         Sc = Sc - ini.*D_sun(idx,j);
-        %     end
-        % else
-        %     D_sun = zeros(Nt,0);
-        % end
-        % Le = Gr + Sc;
-
-        for j = 1:SkyRegions.n.sky
-            if ~any(B(:,j))
-                D_sky(idx,j) = NaN;
-            else
-                D_sky(idx,j) = Le(:,B(:,j))*Ws(B(:,j))/sum(Ws(B(:,j)));
-            end
-            % D_sky(idx,j) = mean(Gr(idx,inj),2);
-            % D_sky(idx,j) = sum(Gr(idx,inj).*sin(gg(inj)),2)./(sin(gg)*inj);
-        end
+        % Discretized radiance for each element of SkyRegions
+        [D_sky(idx,:),D_sun(idx,:)] = discrete_radiance(Le,zz);
     end
 
     % D_sky(isnan(D_sky)) = 0;
     % D_sun(isnan(D_sun)) = 0;
     varargout = {D_sky,D_sun};
+end
+
+function Si = skyindex(MD,SP,useful,ikb)
+
+    % TODO: Should absolute air-mass be used??
+    if ~(isfield(MD,'AMr')), MD.AMr = pvl_relativeairmass(90-SP.El); end
+
+    m = MD.AMr(useful);
+    
+    % Clear Sky Index
+    if ikb && isfield(MD,'CSGHI')
+        Kc = MD.GHI(useful)./MD.CSGHI(useful); 
+    else
+        Kc = MD.GHI(useful)./approxCSGHI(MD.ENI(useful),m); 
+    end
+    Kc = max(0,min(1,Kc));
+    
+    % Ce = Diffuse fraction, aka "Cloud Ratio"
+    Ce = MD.DHI(useful)./MD.GHI(useful);
+    Ce = min(Ce,1);
+   
+    if ikb && all(isfield(MD,{'CSDHI','CSGHI'}))
+        Ces = MD.CSDHI(useful)./MD.CSGHI(useful); 
+    else    
+        % MHA: Igawa et al. use only points with sunel > 5°, so m < ~10.3 and Ces < 0.5
+        m = min(20,m);
+        
+        Ces = (m.^(0:4))*[0.01299,0.07698,-0.003857,0.0001054,-0.000001031]';
+    end
+    Cle = (1-Ce)./(1-Ces);    % cloudless index
+    Si = Kc+sqrt(Cle);        % Sky index
+    Si = max(0,min(single(Si),2.0));
+end
+
+function Seeg = approxCSGHI(Ee0,m)
+    TL0 = 2.5;
+    Seeg = 0.84*Ee0./m.*exp(-0.027*TL0*m);  % ~ CSGHI
 end
 
 function Le = radiance(az,el,sunel,sunaz,Si,R,model,filter)
@@ -296,14 +241,10 @@ function varargout = relative_radiance(Si,varargin)
 %   into the surrounding space of an atmospheric particle. The radiance of a sky-element (g,z) at
 %   the given Si is PROPORTIONAL* to PHI(g)·F(z).
 %
-% [Le,Sc,Gr] = RELATIVE_RADIANCE(Si,GAMMA,ZETA) - Returns non-normalized* relative-radiance values
+% Le = RELATIVE_RADIANCE(Si,GAMMA,ZETA) - Returns non-normalized* relative-radiance values
 %   for sky-elements with elevation GAMMA and angle to the sun ZETA, for sky indices Si. 
-%   The total relative radiance Le is split into a near (circumsolar) component Sc and a combined 
-%   gradation + far-scattering component Gr.
 %
 %       Le = phi(gamma)·f(zeta) - total (non-normalized) radiance
-%       Sc = phi(gamma)·(c·exp(d·zeta))
-%       Gr = phi(gamma)·(1 - exp(d·pi/2) + e·cos²(zeta))
 %
 %   (*) NOTE: values are not normalized! to get absolute radiance, they must be normalized to the
 %   calculated relative radiance at zenith RELATIVE_RADIANCE(Si,90,90 - Gs) for solar elevation Gs
@@ -357,19 +298,7 @@ function varargout = relative_radiance(Si,varargin)
     phi = (1 + a.*exp(b./sind(max(0,gamma))))./(1 + a.*exp(b));     % relative gradation
     f = 1 + c.*(exp(d.*zeta*pi/180)-exp(d*pi/2))+e.*cosd(zeta).^2;  % scattering indicatrix
     Le = single(phi.*f);
-    
-    %Sc = phi.*c.*(exp(d.*zeta) - exp(d*pi/2));          % near-scattering
-    %Gr = phi.*(1 + e.*cos(zeta).^2);                    % gradation + far-scattering
-    %Le = Sc+Gr; % phi(gamma)·f(zeta)
-    
     varargout = {Le};
-    % if nargout < 2
-    %     varargout = {Le};
-    % else
-    %     Sc = single((1 + a.*exp(b)).*f);
-    %     Gr = Le - Sc;
-    %     varargout = {Le,Sc,Gr};
-    % end
 end
 
 function [LzEd,Xs,Ws] = getLzEd(model)
@@ -425,33 +354,174 @@ function [LzEd,Xs,Ws] = getLzEd(model)
     % contourf(LzEd.GridVectors{1},LzEd.GridVectors{2}*180/pi,LzEd.Values'); colorbar();
 end
 
+function varargout = discrete_radiance(varargin)
+% G = DISCRETE_RADIANCE(XS,WS,SR) - initialization call.
+% [DSKY,DSUN] = DISCRETE_RADIANCE(LE,Z) - Estimate integrated radiance LE over the discrete regions
+%   SR.sky, and SR.solar of SR. Requires a previous initialization call (above).
+%
+% INPUT:
+%   XS,WS - quadrature points and weights, as returned by GETLZED
+%   SR - SHADINGREGIONS object
+%   LE - [N,M] array of radiance values, already normalized!, M must match size(XS,1)
+%   Z - [N,M] array of angles between quadrature points Xs and the sun
+%     G = DISCRETE_RADIANCE(Xs,Ws,SR);
+%     Z = acosd(sph2cartV(sunaz,sunel)*Xs');
+%     LE = relative_radiance(Si,G,Z,model).*R;
+%     [DSKY,DSUN] = DISCRETE_RADIANCE(LE,Z);
+        
+    persistent Xs
+    persistent Ws
+    persistent SR
+    persistent B
+    
+    if nargin == 3
+        [Xs,Ws,SR] = deal(varargin{:});
+        validateattributes(Ws,'numeric',{'real','size',[NaN,1]});
+        validateattributes(Xs,'numeric',{'real','size',[numel(Ws),3]});
+
+        [B,Ws] = assignpoints(SR,Xs,Ws);
+        varargout{1} = atan2d(Xs(:,3),hypot(Xs(:,1),Xs(:,2)));
+        return;
+    else
+        [Le,zz] = deal(varargin{:});
+        Nt = size(Le,1);
+        validateattributes(Le,'numeric',{'real','size',[NaN,numel(Ws)]});
+        validateattributes(zz,'numeric',{'real','size',[Nt,numel(Ws)]});
+    end
+    
+    D_sky = NaN(Nt,SR.n.sky);
+    if ~isempty(SR.cs)
+        D_sun = NaN(Nt,SR.n.solar);
+    else
+        D_sun = zeros(Nt,0);
+    end  
+  
+    if isempty(SR.cs)
+    % Calculate sky components as weighted averages of quadrature points within each region.
+    
+        for j = 1:SR.n.sky
+            inj = B(:,j);
+            D_sky(:,j) = Le(:,inj)*Ws(inj)/sum(Ws(inj));
+        end
+    else
+    % For overlapping circumsolar regions, the problem becomes: 
+    %
+    %   [D_sky(t,:), D_sun(t,:)]' = x(t) = argmin( [B C(t)] W x = Le(t,:)' )
+    %
+    % Where B(i,j) is a boolean matrix assigning quadrature points Xs to sky regions,
+    % C(t) would be a matrix (similar to B) for circumsolar regions, at time t,
+    % W = diag(Ws)/mean(Ws) applies weights to each quadrature point,
+    % and Le(t,:)' is the vector of radiances calculated at Xs for time t.
+    %
+    % The least squares solution x = [B'W²B B'W²C; C'W²B C'W²C]\[B C]'W Le is not guaranteed to
+    % be physical (radiance components might be negative). To avoid this issue, let instead:
+    %
+    %   x(t) = [D_sky - min(Le), D_sun]', x(t) = argmin( [B C] W x = Le - min(Le) ) | x > 0
+    %
+    % NOTE: there is no restriction on circumsolar irradiance over several rings being monotonic!
+
+        Ws = Ws/mean(Ws);
+        
+        Le_min = min(Le,[],2);
+        Le = Le - Le_min;
+        
+        BC = zeros(Nt,SR.n.sky,SR.n.solar,'double');
+        
+        Y = zeros(Nt,SR.n.sky+SR.n.solar,'double');
+        Y(:,1:SR.n.sky) = (Le.*Ws')*B;
+        
+        CC = zeros(Nt,SR.n.solar,'double');
+        inothers = false(size(zz));
+        for j = 1:SR.n.solar
+            inj = (zz <= SR.cs(j) & ~inothers);
+            inothers(inj) = true;
+            wj = inj.*Ws';
+            CC(:,j) = sum(wj.^2,2);
+            Y(:,j+SR.n.sky) = sum(wj.*Le,2);
+            for k = 1:SR.n.sky
+                BC(:,k,j) = sum(wj(:,B(:,k)).^2,2);
+            end
+        end
+
+        BC = permute(BC,[2,3,1]);
+        BB = double(diag(sum(B.*Ws.^2,1))); % = (B.*Ws)'*(B.*Ws);
+
+        X = arrayfun(@(j) lsqnonneg([BB,BC(:,:,j);BC(:,:,j)',diag(CC(j,:))],Y(j,:)'),1:Nt,'unif',0);
+        X = cat(2,X{:});
+        
+        D_sky = X(1:SR.n.sky,:)' + Le_min;
+        D_sun = X(SR.n.sky+1:end,:)';
+    end
+
+    varargout = {D_sky,D_sun};
+end
+
+function [B,Ws] = assignpoints(SR,Xs,Ws)
+% Classify quadrature points Xs into the Sky-Regions they fall into, return a boolean matrix B,
+% where B(i,j) = true implies point Xs(i,:) is inside SR.sky{j}.
+
+    Nq = size(Xs,1);
+
+    prj = polyprojector('azim');
+    prj_reg = projectstatic(SR,prj);
+    prj_Xs = prj.r0*prj.fun(Xs(:,3)).*Xs(:,1:2)./hypot(Xs(:,1),Xs(:,2));
+
+    inothers = (Ws <= 0);
+    B = false(Nq,SR.n.sky);
+    for j = 1:numel(SR.sky)
+        B(:,j) = ~inothers;
+        B(~inothers,j) = insidepolygon(prj_reg.sky{j},prj_Xs(~inothers,1),prj_Xs(~inothers,2));
+        inothers = inothers | B(:,j);
+    end
+    if SR.hasimplicit.sky && ~all(inothers)
+        B(:,end) = ~inothers;
+    elseif ~all(inothers)
+        warning('%d points outside all regions! re-normalizing',nnz(~inothers));
+        Ws = Ws.*(1+sum(Ws(~inothers))/sum(Ws));
+    end
+end
+
 function test()
 
+    SR = ShadingRegions('sat13_CS_10_20_30');
     LzEd = getLzEd('2004');
     N = 512;
         
     prj = polyprojector('ortographic','tol',1e-6);
     [xx,yy] = meshgrid(linspace(-1,1,N),linspace(-1,1,N));
     V = prj.inv([xx(:),yy(:)]')';
-    V(V(3,:) < max(0,prj.cX),:) = NaN;
-    gg = atan2d(V(:,3),hypot(V(:,1),V(:,2)));   
+    outside = ~(V(:,3) > max(getSimOption('RelTol'),prj.cX)); 
+    V = V(~outside,:);
+    
+    gg = discrete_radiance(V,ones(nnz(~outside),1)/nnz(~outside),SR);
 
     fh = GUIfigure('radiance_igawa_test','-silent');
     try close(fh); end
     
-    GUIfigure('radiance_igawa_test','radiance_igawa test','2:1'); clf();
-    ax = arrayfun(@(j) subplot(1,2,j),1:2);
+    GUIfigure('radiance_igawa_test','radiance_igawa test','3:1'); clf();
+    ax = arrayfun(@(j) subplot(1,3,j),1:3);
     
-    h = imagesc(ax(1),xx(1,1:N),yy(1:N,1),rand(N),'AlphaData',~isnan(reshape(V(:,3),[N,N])));
+    himg = imagesc(ax(1),xx(1,1:N),yy(1:N,1),ones(N),'AlphaData',reshape(~outside,[N,N]));
     axis(ax(1),'equal');
     set(ax(1),'ydir','normal');
+    axis(ax(1),[-1,1,-1,1]);
     % set(ax(1),'xdir','reverse');
-    %caxis(ax(1),[0,1.5]);
     colorbar(ax(1));
     
     ax(1).Visible = 'off';
     ax(2).Visible = 'off';
     ax(2).Position = ax(2).Position*[1 0 0 0; 0 1 0 0.1; 0 0 1 0; 0 0 0 0.8]';
+    
+    opt.rotation = eye(3);
+    opt.prj = prj;
+    opt.ax = ax(3);
+    [~,hsky] = plot(SR,opt);
+    % set(ax(3),'xdir','reverse');
+    ax(3).Position(3:4) = ax(1).Position(3:4);
+    
+    colorlist = colormap(ax(1));
+    ncolors = size(colorlist,1);
+    cfun = @(x,b) colorlist(round((x-b(1))/diff(b)*(ncolors-1)+1),:);
     
     CTL = plotcontrols({'popupmenu','slider','slider','slider','text'},...
                  {'model','sunel','sunaz','Si','output'},...
@@ -461,6 +531,9 @@ function test()
              
     LzEd = [];
     Le = [];
+    augmented = {};
+    hcs = {};
+    
     update('2004',45,120,1.2)
 
     function update(model,sunel,sunaz,Si,~,caller,~)
@@ -474,8 +547,51 @@ function test()
         
         zz = acosd(V*sph2cartV(90-sunaz,sunel)');
         Le = LzEd(Si,sunel)*relative_radiance(Si,gg,zz,model)./relative_radiance(Si,90,90-sunel',model);
-        h.CData(:) = Le;
+        himg.CData(~outside) = Le;
+        
+        [Dsky,Dcs] = discrete_radiance(Le',zz');
         
         CTL(5).String = sprintf('sum = %0.3f',nanmean(Le)*pi);
+        
+        clim = [min(min(Le),min(Dsky)),max(max(Le),max(Dsky))];
+        
+        caxis(ax(1),clim);
+        opt.colors.sky = cfun(Dsky',clim);
+        opt.sunpos = [sunaz,sunel];
+            
+        needsredraw = nargin < 6 || contains(caller.UserData.label,{'sunel','sunaz'});
+        if needsredraw
+            cla(ax(3));
+            [~,hsky] = plot(SR,opt);
+            
+            % Intersect circumsolar and sky regions to color according to augmented radiance
+            if SR.n.solar > 0
+                sky = polygon3d.vf2poly(hsky.sky.Vertices,hsky.sky.Faces);
+                cs = polygon3d.vf2poly(hsky.solar.Vertices,hsky.solar.Faces);
+                ncs = numel(cs);
+                augmented = cell(ncs,1);
+                hcs = cell(ncs,1);
+                for j = numel(ncs):-1:1
+                    p = arrayfun(@(p) intersectpolygons(cs(j),p),sky,'unif',0);
+                    augmented{j} = ~cellfun(@isempty,p);
+                    [v,~,p] = poly2vef(cat(1,p{augmented{j}}),1);
+                    hcs{j} = patch('faces',p,'vertices',v,'EdgeColor','w',...
+                            'FaceColor','flat','FaceAlpha',1,'LineWidth',0.1);
+                end
+            end    
+        end
+        
+        if any(Dcs + Dsky' > clim(2),'all')
+            clim(2) = max(Dcs + Dsky',[],'all');
+            caxis(ax(1),clim);
+            opt.colors.sky = cfun(Dsky',clim);
+        end
+        hsky.sky.FaceVertexCData = opt.colors.sky;
+        if SR.n.solar > 0
+            for j = 1:numel(hcs)
+                cscolors = cfun(Dcs(j) + Dsky(augmented{j}),clim);
+                hcs{j}.FaceVertexCData = cscolors;
+            end
+        end    
     end
 end

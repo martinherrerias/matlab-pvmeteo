@@ -689,7 +689,7 @@ methods (Static = true)
         if ~flagifnan
             notok = notok & ~isnan(value);
         end
-        flag(notok) = bitset(flag(notok),bit);
+        flag = bitset(flag,bit,notok);
     end
 
     function  [x,pass,best_units] = check_units(x,okfcn,units,convfcn,order,threshold)

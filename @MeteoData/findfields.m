@@ -52,7 +52,7 @@ function varargout = findfields(S,varargin)
 
         ALIAS.ENI = {'eni','dni_toa','Ea','etrn'};
         ALIAS.sunel = {'sunel','apparent_solar_elevation'};
-        ALIAS.sunaz = {'sunaz','azm','zenith'};
+        ALIAS.sunaz = {'sunaz','azm','azimuth'};
         ALIAS.hourangle = {'hourangle','w'};
         ALIAS.declination = {'declination','dec'};
 

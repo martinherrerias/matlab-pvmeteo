@@ -200,11 +200,15 @@ function plotIAM(fIAM,info)
     plot(90-tt,iso(tt));
     plot(90-tt,alb(tt));
     plot(90-tt,hb(tt));
-    axis([0,90,0.8,1]);
-    legend({'Beam/CS','Isotropic Sky','Isotropic Albedo','Horizon Line'});
-    legend box off
-    xlabel('Beam Incidence Angle / 90° - Surface Tilt (degrees)');
-    ylabel('IAM Factor');
+    axis([0,90,0.7,1]);
+    legend({'Direct $f_b(\gamma)$',...
+            'Isotropic Sky $f_{iso}(90^\circ - \beta)$',...
+            'Isotropic Albedo $f_\rho(90^\circ - \beta)$',...
+            'Horizon Line $f_{hb}(90^\circ - \beta)$'},...
+            'interpreter','latex','box','off','location','southwest');
+    xlabel('$\gamma$ (incidence angle), $90^\circ - \beta$ (surface tilt)','interpreter','latex');
+    ylabel('IAM Factor','interpreter','latex');
+    xticks(0:15:90)
     grid on
     title(info,'interpreter','none');
 end
